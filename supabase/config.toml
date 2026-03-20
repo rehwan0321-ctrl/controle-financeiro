@@ -17,3 +17,5 @@ project_id = "ltjtgbcjcaesuqrvoqnk"
     verify_jwt = false
   [functions.delay-viewer]
     verify_jwt = false
+  [functions.update-user-password]
+    verify_jwt = true

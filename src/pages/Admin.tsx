@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { getSafeErrorMessage } from "@/lib/safe-error";
-import { Users, Landmark, BarChart3, Search, ShieldCheck, Banknote, AlertTriangle, Percent, UserCheck, Pencil, Trash2, Bell, Send, Mail, Monitor, Sparkles, Loader2, MailCheck } from "lucide-react";
+import { Users, Landmark, BarChart3, Search, ShieldCheck, Banknote, AlertTriangle, Percent, UserCheck, Pencil, Trash2, Bell, Send, Mail, Monitor, Sparkles, Loader2, MailCheck, KeyRound } from "lucide-react";
 import { EmailDashboard } from "@/components/dashboard/EmailDashboard";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -58,6 +58,12 @@ const Admin = () => {
   const [saving, setSaving] = useState(false);
   const [deletingUser, setDeletingUser] = useState<Profile | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Password state
+  const [editingPasswordUser, setEditingPasswordUser] = useState<Profile | null>(null);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [savingPassword, setSavingPassword] = useState(false);
 
   // Notification state
   const [notifTitulo, setNotifTitulo] = useState("");
@@ -208,6 +214,36 @@ const Admin = () => {
       fetchEmprestimos();
     }
     setSaving(false);
+  };
+
+  const handleSavePassword = async () => {
+    if (!editingPasswordUser) return;
+    if (newPassword.length < 6) {
+      toast({ title: "Senha muito curta", description: "A senha deve ter pelo menos 6 caracteres.", variant: "destructive" });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast({ title: "Senhas não coincidem", description: "Digite a mesma senha nos dois campos.", variant: "destructive" });
+      return;
+    }
+    setSavingPassword(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("update-user-password", {
+        body: { user_id: editingPasswordUser.user_id, password: newPassword },
+      });
+      if (error || data?.error) {
+        toast({ title: "Erro ao alterar senha", description: getSafeErrorMessage(error || data), variant: "destructive" });
+        setSavingPassword(false);
+        return;
+      }
+      toast({ title: "Senha alterada com sucesso!" });
+      setEditingPasswordUser(null);
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (err: any) {
+      toast({ title: "Erro ao alterar senha", description: getSafeErrorMessage(err), variant: "destructive" });
+    }
+    setSavingPassword(false);
   };
 
   const handleDeleteUser = async () => {
@@ -538,6 +574,9 @@ const Admin = () => {
                                 </Select>
                                 <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEditProfile(p)} title="Editar">
                                   <Pencil className="h-4 w-4" />
+                                </Button>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 text-warning hover:text-warning" onClick={() => { setEditingPasswordUser(p); setNewPassword(""); setConfirmPassword(""); }} title="Alterar senha">
+                                  <KeyRound className="h-4 w-4" />
                                 </Button>
                                 <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setDeletingUser(p)} title="Excluir">
                                   <Trash2 className="h-4 w-4" />
@@ -962,6 +1001,62 @@ const Admin = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Edit Password Dialog */}
+      <Dialog open={!!editingPasswordUser} onOpenChange={(open) => { if (!open) { setEditingPasswordUser(null); setNewPassword(""); setConfirmPassword(""); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <KeyRound className="h-5 w-5 text-warning" /> Alterar Senha
+            </DialogTitle>
+            <DialogDescription>
+              Alterando senha de: <strong>{editingPasswordUser?.email || editingPasswordUser?.nome}</strong>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="new-password">Nova Senha</Label>
+              <Input
+                id="new-password"
+                type="password"
+                placeholder="Mínimo 6 caracteres"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                minLength={6}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirm-password">Confirmar Nova Senha</Label>
+              <Input
+                id="confirm-password"
+                type="password"
+                placeholder="Repita a nova senha"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                minLength={6}
+              />
+            </div>
+            {newPassword && confirmPassword && newPassword !== confirmPassword && (
+              <p className="text-xs text-destructive">As senhas não coincidem.</p>
+            )}
+            {newPassword && newPassword.length < 6 && (
+              <p className="text-xs text-destructive">A senha deve ter pelo menos 6 caracteres.</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setEditingPasswordUser(null); setNewPassword(""); setConfirmPassword(""); }}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleSavePassword}
+              disabled={savingPassword || !newPassword || !confirmPassword || newPassword !== confirmPassword || newPassword.length < 6}
+              className="bg-warning text-warning-foreground hover:bg-warning/90"
+            >
+              {savingPassword ? "Salvando..." : "Salvar Senha"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
