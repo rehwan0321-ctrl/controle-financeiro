@@ -5,15 +5,6 @@ import type { Database } from './types';
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
-if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
-  console.error(
-    '❌ Variáveis de ambiente do Supabase não configuradas!\n' +
-    'Crie um arquivo .env na raiz do projeto com:\n' +
-    'VITE_SUPABASE_URL=https://seu_project_id.supabase.co\n' +
-    'VITE_SUPABASE_PUBLISHABLE_KEY=sua_anon_key'
-  );
-}
-
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
