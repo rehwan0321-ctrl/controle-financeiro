@@ -23,10 +23,10 @@ import { getSafeErrorMessage } from "@/lib/safe-error";
 import { useAuth } from "@/hooks/useAuth";
 import { useUserRole } from "@/hooks/useUserRole";
 import {
-  Search, Plus, Wallet, ArrowDownCircle, ArrowUpCircle, History, TrendingUp,
+  Search, Plus, Wallet, ArrowDownCircle, ArrowUpCircle, History, TrendingUp, TrendingDown,
   Users, Copy, Eye, EyeOff, MoreHorizontal, Pencil, Trash2, SortAsc, ChevronsUpDown, Check, Info,
   DollarSign, Clock, RotateCcw, CalendarDays, Download, CheckSquare, Square, Camera, LayoutGrid, Columns2,
-  Building2, Share2, Link, List, ChevronDown
+  Building2, Share2, Link, List, ChevronDown, CheckCircle2
 } from "lucide-react";
 import { CASAS_APOSTAS, getCasaLogo } from "@/lib/casas-apostas";
 
@@ -366,6 +366,7 @@ const DelayEsportivo = () => {
   const [filtroDataSaque, setFiltroDataSaque] = useState<Date | undefined>(undefined);
   const [filtroDataSaqueOpen, setFiltroDataSaqueOpen] = useState(false);
   const [filtroNick, setFiltroNick] = useState<string>("todos");
+  const [quickFilter, setQuickFilter] = useState<"all" | "pendentes" | "concluidas" | "red">("all");
   const [showPendentes, setShowPendentes] = useState(false);
 
   // Dialog states
@@ -798,13 +799,17 @@ const DelayEsportivo = () => {
       const matchNick = filtroNick === "todos" ||
         (filtroNick === "direto" && !c.created_by_token) ||
         (c.created_by_token === filtroNick);
-      return matchBusca && matchStatus && matchCasa && matchDataSaque && matchNick;
+      const matchQuick = quickFilter === "all" ||
+        (quickFilter === "pendentes" && (c.status === "saque_pendente" || (c.deposito_pendente ?? 0) > 0)) ||
+        (quickFilter === "concluidas" && (c.status === "concluido" || c.status === "devolvido")) ||
+        (quickFilter === "red" && c.lucro < 0);
+      return matchBusca && matchStatus && matchCasa && matchDataSaque && matchNick && matchQuick;
     });
     if (sortMode === "az") {
       result = result.sort((a, b) => a.casa.localeCompare(b.casa, "pt-BR") || a.nome.localeCompare(b.nome, "pt-BR"));
     }
     return result;
-  }, [clientes, busca, filtroStatus, filtroCasa, sortMode, filtroDataSaque, allTransacoes, filtroNick]);
+  }, [clientes, busca, filtroStatus, filtroCasa, sortMode, filtroDataSaque, allTransacoes, filtroNick, quickFilter]);
 
   const stats = useMemo(() => {
     const visibleClientes = clientes.filter(c => c.status !== "system");
@@ -2000,6 +2005,67 @@ const DelayEsportivo = () => {
             </div>
           </CardContent>
         </Card>
+
+        {/* Quick Filters */}
+        {(() => {
+          const allVisible = clientes.filter(c => c.status !== "system");
+          const pendentesCount = allVisible.filter(c => c.status === "saque_pendente" || (c.deposito_pendente ?? 0) > 0).length;
+          const concluidasCount = allVisible.filter(c => c.status === "concluido" || c.status === "devolvido").length;
+          const redCount = allVisible.filter(c => c.lucro < 0).length;
+          const activeLinks = shareLinks.filter(l => l.ativo && l.tipo !== "visualizador" && l.tipo !== "visualizador_vodka");
+          return (
+            <div className="flex flex-wrap gap-2 items-center">
+              <Button
+                size="sm"
+                variant={quickFilter === "pendentes" ? "default" : "outline"}
+                className={`gap-1.5 text-xs ${quickFilter === "pendentes" ? "bg-orange-500 hover:bg-orange-600 border-orange-500 text-white" : "border-orange-500/40 text-orange-400 hover:bg-orange-500/10"}`}
+                onClick={() => setQuickFilter(quickFilter === "pendentes" ? "all" : "pendentes")}
+              >
+                <Clock className="h-3.5 w-3.5" />
+                Pendentes
+                <Badge className="ml-0.5 text-[10px] px-1.5 py-0 bg-orange-500/20 text-orange-400 border-orange-500/30">{pendentesCount}</Badge>
+              </Button>
+              <Button
+                size="sm"
+                variant={quickFilter === "concluidas" ? "default" : "outline"}
+                className={`gap-1.5 text-xs ${quickFilter === "concluidas" ? "bg-emerald-600 hover:bg-emerald-700 border-emerald-600 text-white" : "border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10"}`}
+                onClick={() => setQuickFilter(quickFilter === "concluidas" ? "all" : "concluidas")}
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                Concluídas
+                <Badge className="ml-0.5 text-[10px] px-1.5 py-0 bg-emerald-500/20 text-emerald-400 border-emerald-500/30">{concluidasCount}</Badge>
+              </Button>
+              {redCount > 0 && (
+                <Button
+                  size="sm"
+                  variant={quickFilter === "red" ? "default" : "outline"}
+                  className={`gap-1.5 text-xs ${quickFilter === "red" ? "bg-red-600 hover:bg-red-700 border-red-600 text-white" : "border-red-500/40 text-red-400 hover:bg-red-500/10"}`}
+                  onClick={() => setQuickFilter(quickFilter === "red" ? "all" : "red")}
+                >
+                  <TrendingDown className="h-3.5 w-3.5" />
+                  Red
+                  <Badge className="ml-0.5 text-[10px] px-1.5 py-0 bg-red-500/20 text-red-400 border-red-500/30">{redCount}</Badge>
+                </Button>
+              )}
+              {activeLinks.length > 0 && (
+                <Select value={filtroNick} onValueChange={v => { setFiltroNick(v); setQuickFilter("all"); }}>
+                  <SelectTrigger className="h-8 w-auto min-w-[110px] text-xs border-blue-500/40 text-blue-400 gap-1.5">
+                    <Link className="h-3.5 w-3.5" />
+                    <SelectValue placeholder="Links" />
+                    <ChevronDown className="h-3.5 w-3.5 ml-auto" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todos">Todos os Links</SelectItem>
+                    <SelectItem value="direto">Cadastro direto</SelectItem>
+                    {activeLinks.map(link => (
+                      <SelectItem key={link.id} value={link.token}>{link.nick || link.token.slice(0, 8)}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Bulk Action Bar */}
         {selectionMode && (
