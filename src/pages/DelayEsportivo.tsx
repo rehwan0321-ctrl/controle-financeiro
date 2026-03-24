@@ -3147,40 +3147,6 @@ const DelayEsportivo = () => {
               </Button>
             </div>
 
-            {/* Admin: Create viewer link */}
-            {isAdmin && (
-              <div className="border border-dashed border-primary/40 rounded-lg p-3 space-y-2">
-                <p className="text-xs font-bold flex items-center gap-1.5">
-                  <Eye className="h-3.5 w-3.5 text-primary" /> Link de Visualização (Admin)
-                </p>
-                <p className="text-[10px] text-muted-foreground">Quem acessar verá <strong>todos</strong> os clientes, mas sem poder editar.</p>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="w-full"
-                  disabled={shareLinkLoading}
-                  onClick={async () => {
-                    if (!user) return;
-                    setShareLinkLoading(true);
-                    try {
-                      const { error } = await supabase
-                        .from("delay_share_links")
-                        .insert({ user_id: user.id, nick: "Visualizador", tipo: "visualizador" } as any);
-                      if (error) throw error;
-                      await fetchShareLinks();
-                      toast({ title: "Link de visualização criado!" });
-                    } catch (err: any) {
-                      toast({ title: "Erro", description: getSafeErrorMessage(err), variant: "destructive" });
-                    } finally {
-                      setShareLinkLoading(false);
-                    }
-                  }}
-                >
-                  <Eye className="h-4 w-4 mr-1" /> Criar Link de Visualização
-                </Button>
-              </div>
-            )}
-
             {/* Admin: Create individual viewer link */}
             {isAdmin && (
               <div className="border border-dashed border-purple-500/40 rounded-lg p-3 space-y-2">
