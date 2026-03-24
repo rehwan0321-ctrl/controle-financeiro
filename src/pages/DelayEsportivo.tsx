@@ -1072,7 +1072,7 @@ const DelayEsportivo = () => {
   };
 
   const copyShareLink = (token: string, tipo: string) => {
-    const origin = "https://rwinvestimentos.com.br";
+    const origin = window.location.origin;
     const path = (tipo === "visualizador" || tipo === "visualizador_vodka") ? "/visualizar-delay" : "/adicionar-cliente";
     const url = `${origin}${path}?token=${token}`;
     navigator.clipboard.writeText(url);
