@@ -418,6 +418,7 @@ const DelayEsportivo = () => {
   const [editDate, setEditDate] = useState<Date>(new Date());
   const [depositoInicial, setDepositoInicial] = useState("");
   const [depositoBanco, setDepositoBanco] = useState<"santander" | "c6">("santander");
+  const [selectedLinkToken, setSelectedLinkToken] = useState<string>("admin");
   const [casaPopoverOpen, setCasaPopoverOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const processingRef = useRef(false);
@@ -1036,6 +1037,7 @@ const DelayEsportivo = () => {
     resetForm();
     setDepositoInicial("");
     setDepositoBanco("santander");
+    setSelectedLinkToken("admin");
     setDialogOpen(true);
   };
 
@@ -1125,8 +1127,9 @@ const DelayEsportivo = () => {
       else toast({ title: "Cliente atualizado!" });
     } else {
       const depositoVal = parseFloat(depositoInicial) || 0;
+      const chosenToken = selectedLinkToken !== "admin" ? selectedLinkToken : null;
       const { data: newCliente, error } = await supabase.from("delay_clientes")
-        .insert({ nome: form.nome, casa: form.casa, login: form.login || null, senha: form.senha || null, fornecedor: form.fornecedor || null, tipo: form.tipo, status: form.status, operacao: form.operacao, user_id: user!.id, depositos: depositoVal, banco_deposito: depositoBanco } as any)
+        .insert({ nome: form.nome, casa: form.casa, login: form.login || null, senha: form.senha || null, fornecedor: form.fornecedor || null, tipo: form.tipo, status: form.status, operacao: form.operacao, user_id: user!.id, depositos: depositoVal, banco_deposito: depositoBanco, created_by_token: chosenToken } as any)
         .select().single();
       if (error) toast({ title: "Erro", description: getSafeErrorMessage(error), variant: "destructive" });
       else {
@@ -2469,6 +2472,22 @@ const DelayEsportivo = () => {
                 </div>
               )}
             </div>
+            {!editCliente && (
+              <div>
+                <Label className="font-bold">Exibir no Link</Label>
+                <Select value={selectedLinkToken} onValueChange={setSelectedLinkToken}>
+                  <SelectTrigger className="mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="admin">Visualização Admin</SelectItem>
+                    {shareLinks.filter(l => l.ativo && l.tipo !== "visualizador" && l.tipo !== "visualizador_vodka").map(link => (
+                      <SelectItem key={link.id} value={link.token}>{link.nick || link.token.slice(0, 8)}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             {!editCliente && (
               <div>
                 <Label className="font-bold">Debitar de</Label>
