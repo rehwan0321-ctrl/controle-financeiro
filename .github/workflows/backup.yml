@@ -1,0 +1,37 @@
+name: Backup Semanal dos Dados
+
+on:
+  schedule:
+    - cron: '0 3 * * 1'  # Toda segunda-feira às 03:00 UTC
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Exportar dados do Supabase
+        run: |
+          mkdir -p backups
+
+          TABLES=("delay_clientes" "delay_transacoes" "delay_share_links" "emprestimos" "wallet_transactions")
+
+          for TABLE in "${TABLES[@]}"; do
+            curl -s \
+              "${{ secrets.VITE_SUPABASE_URL }}/rest/v1/${TABLE}?select=*" \
+              -H "apikey: ${{ secrets.SUPABASE_SERVICE_KEY }}" \
+              -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_KEY }}" \
+              > "backups/${TABLE}_$(date +%Y-%m-%d).json"
+            echo "Exportado: ${TABLE}"
+          done
+
+      - name: Salvar backup no repositório
+        run: |
+          git config user.name "Backup Bot"
+          git config user.email "backup@rwinvestimentos.com.br"
+          git add backups/
+          git diff --staged --quiet || git commit -m "backup: dados de $(date +%d/%m/%Y)"
+          git push
