@@ -47,6 +47,10 @@ const Emprestimos = () => {
   const [dataEmprestimo, setDataEmprestimo] = useState<Date>();
   const [dataPagamento, setDataPagamento] = useState<Date>();
 
+  // Summary popup state
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [summaryData, setSummaryData] = useState<{ nome: string; valor: number; juros: number; dataEmprestimo: string; dataPagamento: string; total: number } | null>(null);
+
   // Edit dialog state
   const [editOpen, setEditOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -393,13 +397,36 @@ const Emprestimos = () => {
       await logTransaction("emprestimo", empValor, saldo, newSaldo, `Empréstimo para ${nome}`);
       setSaldo(newSaldo);
 
+      const total = empValor + (empValor * parseFloat(juros) / 100);
+      setSummaryData({
+        nome,
+        valor: empValor,
+        juros: parseFloat(juros),
+        dataEmprestimo: format(dataEmprestimo, "dd/MM/yyyy"),
+        dataPagamento: format(dataPagamento, "dd/MM/yyyy"),
+        total,
+      });
       resetAddForm();
       setOpen(false);
+      setSummaryOpen(true);
       fetchClientes();
       fetchTransactions();
     } finally {
       submittingRef.current = false;
     }
+  };
+
+  const openSummaryForCliente = (c: Cliente) => {
+    const total = c.valor + (c.valor * c.juros / 100);
+    setSummaryData({
+      nome: c.nome,
+      valor: c.valor,
+      juros: c.juros,
+      dataEmprestimo: format(parseISO(c.dataEmprestimo), "dd/MM/yyyy"),
+      dataPagamento: format(parseISO(c.dataPagamento), "dd/MM/yyyy"),
+      total,
+    });
+    setSummaryOpen(true);
   };
 
   const openEdit = (c: Cliente) => {
@@ -684,6 +711,50 @@ const Emprestimos = () => {
           </Dialog>
         </div>
       </header>
+
+      {/* Summary Popup */}
+      <Dialog open={summaryOpen} onOpenChange={setSummaryOpen}>
+        <DialogContent className="w-[92vw] sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCircle className="h-5 w-5 text-green-500" /> Resumo do Empréstimo
+            </DialogTitle>
+          </DialogHeader>
+          {summaryData && (
+            <div className="space-y-3 mt-1">
+              <div className="rounded-lg border p-4 text-sm leading-relaxed space-y-2">
+                <p className="font-bold text-base">Situação do seu Empréstimo</p>
+                <p className="text-muted-foreground text-xs">Olá {summaryData.nome}!</p>
+                <p className="text-muted-foreground text-xs">Segue o resumo do seu contrato:</p>
+                <div className="space-y-1 pt-1">
+                  <p>💵 Valor emprestado: <span className="font-semibold">R$ {summaryData.valor.toFixed(2)}</span></p>
+                  <p>📊 Juros <span className="font-semibold">{summaryData.juros}%</span></p>
+                  <p>⏳ Saldo devedor: <span className="font-semibold text-green-500">R$ {summaryData.total.toFixed(2)}</span></p>
+                  <p>📅 Próximo vencimento: <span className="font-semibold">{summaryData.dataPagamento}</span> — R$ {summaryData.total.toFixed(2)}</p>
+                </div>
+                <p className="pt-1 text-muted-foreground text-xs">Qualquer dúvida estou à disposição! 🙏</p>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => {
+                    const fmt = (v: number) => v.toFixed(2);
+                    const text = `*_Situação do seu Empréstimo_*\n\nOlá ${summaryData.nome}!\nSegue o resumo do seu contrato:\n\n💵 Valor emprestado: R$ ${fmt(summaryData.valor)}\n📊 Juros ${summaryData.juros}%\n⏳ Saldo devedor: R$ ${fmt(summaryData.total)}\n📅 Próximo vencimento: ${summaryData.dataPagamento} — R$ ${fmt(summaryData.total)}\n\nQualquer dúvida estou à disposição! 🙏`;
+                    navigator.clipboard.writeText(text);
+                    toast({ title: "Resumo copiado!" });
+                  }}
+                >
+                  <Copy className="h-4 w-4 mr-2" /> Copiar
+                </Button>
+                <Button className="flex-1" onClick={() => setSummaryOpen(false)}>
+                  Fechar
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Edit Dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
@@ -1006,16 +1077,24 @@ const Emprestimos = () => {
                       const matchStatus = filtroStatus === "todos" || (filtroStatus === "atrasado" && atrasado) || (filtroStatus === "em_dia" && !atrasado);
                       return matchNome && matchStatus;
                     })
+                    .sort((a, b) => {
+                      const dateA = parseISO(a.dataPagamento);
+                      const dateB = parseISO(b.dataPagamento);
+                      const overA = isPast(dateA) ? 0 : 1;
+                      const overB = isPast(dateB) ? 0 : 1;
+                      if (overA !== overB) return overA - overB;
+                      return dateA.getTime() - dateB.getTime();
+                    })
                     .map((c) => {
                       const atrasado = isPast(parseISO(c.dataPagamento));
                       const mostrarCobranca = isBefore(parseISO(c.dataPagamento), addDays(new Date(), 2));
                       const valorJuros = c.valor * (c.juros / 100);
                       const valorReceber = c.valor + valorJuros;
                       return (
-                        <div key={c.id} className="border rounded-lg p-3 space-y-2">
+                        <div key={c.id} className="border rounded-lg p-3 space-y-2 cursor-pointer active:bg-muted/60" onClick={() => openSummaryForCliente(c)}>
                           <div className="flex items-center justify-between">
                             <span className="font-medium text-sm">{c.nome}</span>
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
                               <Badge variant={atrasado ? "destructive" : "default"} className={`text-xs ${paidJurosIds.has(c.id) ? "bg-blue-600 hover:bg-blue-700 text-white" : !atrasado ? "bg-green-600 hover:bg-green-700 text-white" : ""}`}>
                                 {paidJurosIds.has(c.id) ? "Pago" : atrasado ? "Atraso" : "Em dia"}
                               </Badge>
@@ -1128,13 +1207,21 @@ const Emprestimos = () => {
                           const matchStatus = filtroStatus === "todos" || (filtroStatus === "atrasado" && atrasado) || (filtroStatus === "em_dia" && !atrasado);
                           return matchNome && matchStatus;
                         })
+                        .sort((a, b) => {
+                          const dateA = parseISO(a.dataPagamento);
+                          const dateB = parseISO(b.dataPagamento);
+                          const overA = isPast(dateA) ? 0 : 1;
+                          const overB = isPast(dateB) ? 0 : 1;
+                          if (overA !== overB) return overA - overB;
+                          return dateA.getTime() - dateB.getTime();
+                        })
                         .map((c) => {
                           const atrasado = isPast(parseISO(c.dataPagamento));
                           const mostrarCobranca = isBefore(parseISO(c.dataPagamento), addDays(new Date(), 2));
                           const valorJuros = c.valor * (c.juros / 100);
                           const valorReceber = c.valor + valorJuros;
                           return (
-                            <TableRow key={c.id}>
+                            <TableRow key={c.id} className="cursor-pointer hover:bg-muted/60" onClick={() => openSummaryForCliente(c)}>
                               <TableCell className="font-medium">{c.nome}</TableCell>
                               <TableCell className="font-mono">R$ {c.valor.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</TableCell>
                               <TableCell className="font-mono">{c.juros}%</TableCell>
@@ -1147,7 +1234,7 @@ const Emprestimos = () => {
                                   {paidJurosIds.has(c.id) ? "Pago" : atrasado ? "Em atraso" : "Em dia"}
                                 </Badge>
                               </TableCell>
-                              <TableCell className="text-right">
+                              <TableCell className="text-right" onClick={e => e.stopPropagation()}>
                                 <div className="flex items-center justify-end gap-1">
                                   <AlertDialog>
                                     <AlertDialogTrigger asChild>

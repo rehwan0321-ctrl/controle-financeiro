@@ -10,6 +10,9 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { useAuth } from "@/hooks/useAuth";
 import { useUserRole } from "@/hooks/useUserRole";
+import { useSubscription } from "@/hooks/useSubscription";
+import { PaywallScreen } from "@/components/PaywallScreen";
+import { TrialBanner } from "@/components/TrialBanner";
 import { supabase } from "@/integrations/supabase/client";
 import Dashboard from "./pages/Dashboard";
 import Index from "./pages/Index";
@@ -44,6 +47,7 @@ const queryClient = new QueryClient();
 
 const ProtectedLayout = () => {
   const { user, loading } = useAuth();
+  const { hasAccess, isTrialActive, isTrialExpired, hoursLeft, trialStartedAt, loading: subLoading } = useSubscription();
 
   // Track online presence
   useEffect(() => {
@@ -57,7 +61,7 @@ const ProtectedLayout = () => {
     return () => { supabase.removeChannel(channel); };
   }, [user]);
 
-  if (loading) {
+  if (loading || subLoading) {
     return <div className="min-h-screen flex items-center justify-center bg-background"><p className="text-muted-foreground">Carregando...</p></div>;
   }
 
@@ -65,9 +69,17 @@ const ProtectedLayout = () => {
     return <Navigate to="/auth" replace />;
   }
 
+  if (!hasAccess) {
+    return <PaywallScreen isTrialExpired={isTrialExpired} hoursLeft={hoursLeft} />;
+  }
+
   return (
     <SidebarProvider>
-      <div className="min-h-screen flex w-full">
+      <div className="min-h-screen flex w-full flex-col">
+        {isTrialActive && trialStartedAt && (
+          <TrialBanner trialStartedAt={trialStartedAt} />
+        )}
+        <div className="flex flex-1 w-full">
         <AppSidebar />
         <div className="flex-1 flex flex-col">
           <div className="sticky top-0 z-20 flex items-center justify-between h-12 border-b bg-card/80 backdrop-blur-sm px-2 lg:hidden">
@@ -93,6 +105,7 @@ const ProtectedLayout = () => {
             <Route path="/delay-dashboard" element={<DelayRoute><DelayDashboard /></DelayRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
+        </div>
         </div>
       </div>
     </SidebarProvider>

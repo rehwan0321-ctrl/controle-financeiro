@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { getSafeErrorMessage } from "@/lib/safe-error";
-import { Users, Landmark, BarChart3, Search, ShieldCheck, Banknote, AlertTriangle, Percent, UserCheck, Pencil, Trash2, Bell, Send, Mail, Monitor, Sparkles, Loader2, MailCheck, KeyRound } from "lucide-react";
+import { Users, Landmark, BarChart3, Search, ShieldCheck, Banknote, AlertTriangle, Percent, UserCheck, Pencil, Trash2, Bell, Send, Mail, Monitor, Sparkles, Loader2, MailCheck, KeyRound, CreditCard, CalendarPlus, Clock } from "lucide-react";
 import { EmailDashboard } from "@/components/dashboard/EmailDashboard";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -76,11 +76,20 @@ const Admin = () => {
   const [clearingNotifs, setClearingNotifs] = useState(false);
   const [improvingText, setImprovingText] = useState(false);
   const [userRoles, setUserRoles] = useState<Record<string, string[]>>({});
+
+  // Subscription management state
+  interface SubRecord { user_id: string; trial_started_at: string; subscription_expires_at: string | null; plan_name: string | null; }
+  const [subscriptions, setSubscriptions] = useState<SubRecord[]>([]);
+  const [editingSubUser, setEditingSubUser] = useState<Profile | null>(null);
+  const [subDays, setSubDays] = useState("30");
+  const [savingSub, setSavingSub] = useState(false);
+
   useEffect(() => {
     fetchProfiles();
     fetchEmprestimos();
     fetchNotifications();
     fetchUserRoles();
+    fetchSubscriptions();
   }, []);
 
   // Track online users via Realtime Presence
@@ -117,6 +126,44 @@ const Admin = () => {
       rolesMap[r.user_id].push(r.role);
     });
     setUserRoles(rolesMap);
+  };
+
+  const fetchSubscriptions = async () => {
+    const { data } = await supabase.from("subscriptions").select("user_id, trial_started_at, subscription_expires_at, plan_name");
+    setSubscriptions(data || []);
+  };
+
+  const handleExtendSubscription = async () => {
+    if (!editingSubUser) return;
+    setSavingSub(true);
+    const days = parseInt(subDays) || 30;
+    // Start from today or from current expiry (whichever is later)
+    const existingSub = subscriptions.find(s => s.user_id === editingSubUser.user_id);
+    const base = existingSub?.subscription_expires_at && new Date(existingSub.subscription_expires_at) > new Date()
+      ? new Date(existingSub.subscription_expires_at)
+      : new Date();
+    const newExpiry = new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
+
+    const { error } = await supabase
+      .from("subscriptions")
+      .upsert({ user_id: editingSubUser.user_id, subscription_expires_at: newExpiry.toISOString(), plan_name: "pago", trial_started_at: existingSub?.trial_started_at || new Date().toISOString() }, { onConflict: "user_id" });
+
+    if (error) {
+      toast({ title: "Erro ao estender assinatura", description: getSafeErrorMessage(error), variant: "destructive" });
+    } else {
+      toast({ title: "Assinatura estendida!", description: `Acesso liberado até ${newExpiry.toLocaleDateString("pt-BR")}.` });
+      setEditingSubUser(null);
+      fetchSubscriptions();
+    }
+    setSavingSub(false);
+  };
+
+  const handleRevokeSubscription = async (userId: string) => {
+    const { error } = await supabase
+      .from("subscriptions")
+      .update({ subscription_expires_at: null, plan_name: "trial" })
+      .eq("user_id", userId);
+    if (!error) { toast({ title: "Assinatura revogada" }); fetchSubscriptions(); }
   };
 
   const handleChangeRole = async (userId: string, newRole: "admin" | "moderator" | "user") => {
@@ -499,6 +546,7 @@ const Admin = () => {
             <TabsTrigger value="emprestimos" className="gap-1.5 flex-1 sm:flex-none text-xs sm:text-sm"><Landmark className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> Empréstimos</TabsTrigger>
             <TabsTrigger value="notificacoes" className="gap-1.5 flex-1 sm:flex-none text-xs sm:text-sm"><Bell className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> Notificações</TabsTrigger>
             <TabsTrigger value="emails" className="gap-1.5 flex-1 sm:flex-none text-xs sm:text-sm"><MailCheck className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> E-mails</TabsTrigger>
+            <TabsTrigger value="assinaturas" className="gap-1.5 flex-1 sm:flex-none text-xs sm:text-sm"><CreditCard className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> Assinaturas</TabsTrigger>
           </TabsList>
 
           <TabsContent value="users">
@@ -526,6 +574,9 @@ const Admin = () => {
                         <TableHead>Cadastro</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Papel</TableHead>
+                        <TableHead>Plano</TableHead>
+                        <TableHead>Compra</TableHead>
+                        <TableHead>Vencimento</TableHead>
                         <TableHead className="text-right">Ações</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -535,6 +586,16 @@ const Admin = () => {
                         const roles = userRoles[p.user_id] || [];
                         const isUserAdmin = roles.includes("admin");
                         const isUserMod = roles.includes("moderator");
+                        const isPrivileged = isUserAdmin || isUserMod;
+
+                        const sub = subscriptions.find(s => s.user_id === p.user_id);
+                        const now = new Date();
+                        const trialEnd = sub ? new Date(new Date(sub.trial_started_at).getTime() + 24 * 60 * 60 * 1000) : null;
+                        const subEnd = sub?.subscription_expires_at ? new Date(sub.subscription_expires_at) : null;
+                        const hasActiveSub = subEnd && subEnd > now;
+                        const trialActive = trialEnd && trialEnd > now && !hasActiveSub;
+                        const expired = !isPrivileged && !hasActiveSub && (!trialEnd || trialEnd <= now);
+
                         return (
                           <TableRow key={p.user_id}>
                             <TableCell className="font-medium">{p.nome || "—"}</TableCell>
@@ -557,6 +618,40 @@ const Admin = () => {
                                 )}
                               </div>
                             </TableCell>
+
+                            {/* Plano */}
+                            <TableCell>
+                              {isPrivileged ? (
+                                <Badge className="text-xs bg-primary/20 text-primary border-primary/30">Ilimitado</Badge>
+                              ) : hasActiveSub ? (
+                                <Badge className="text-xs bg-green-500/20 text-green-400 border-green-500/30">{sub?.plan_name || "Mensal"}</Badge>
+                              ) : trialActive ? (
+                                <Badge variant="outline" className="text-xs border-yellow-500/50 text-yellow-400">Trial</Badge>
+                              ) : (
+                                <Badge variant="destructive" className="text-xs">Expirado</Badge>
+                              )}
+                            </TableCell>
+
+                            {/* Data de compra (quando o plano foi ativado = trial_started_at para mensal ou sub criada) */}
+                            <TableCell className="text-xs text-muted-foreground">
+                              {hasActiveSub && sub?.trial_started_at
+                                ? format(parseISO(sub.trial_started_at), "dd/MM/yyyy")
+                                : "—"}
+                            </TableCell>
+
+                            {/* Vencimento */}
+                            <TableCell className="text-xs">
+                              {isPrivileged ? (
+                                <span className="text-muted-foreground">—</span>
+                              ) : hasActiveSub ? (
+                                <span className="text-green-400 font-medium">{format(subEnd!, "dd/MM/yyyy")}</span>
+                              ) : trialActive ? (
+                                <span className="text-yellow-400">{format(trialEnd!, "dd/MM/yyyy HH:mm")}</span>
+                              ) : (
+                                <span className="text-destructive">Encerrado</span>
+                              )}
+                            </TableCell>
+
                             <TableCell className="text-right">
                               <div className="flex items-center justify-end gap-1">
                                 <Select
@@ -572,6 +667,14 @@ const Admin = () => {
                                     <SelectItem value="admin">Administrador</SelectItem>
                                   </SelectContent>
                                 </Select>
+                                {/* Extend / Revoke plan */}
+                                {!isPrivileged && (
+                                  <>
+                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-primary hover:text-primary" onClick={() => { setEditingSubUser(p); setSubDays("30"); }} title="Gerenciar plano">
+                                      <CreditCard className="h-4 w-4" />
+                                    </Button>
+                                  </>
+                                )}
                                 <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEditProfile(p)} title="Editar">
                                   <Pencil className="h-4 w-4" />
                                 </Button>
@@ -954,8 +1057,146 @@ const Admin = () => {
           <TabsContent value="emails">
             <EmailDashboard />
           </TabsContent>
+
+          <TabsContent value="assinaturas">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base font-semibold flex items-center gap-2">
+                  <CreditCard className="h-4 w-4" /> Gerenciar Assinaturas
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Usuário</TableHead>
+                      <TableHead>Trial iniciado</TableHead>
+                      <TableHead>Plano</TableHead>
+                      <TableHead>Acesso até</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Ações</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {profiles.map((p) => {
+                      const sub = subscriptions.find(s => s.user_id === p.user_id);
+                      const roles = userRoles[p.user_id] || [];
+                      const isPrivileged = roles.includes("admin") || roles.includes("moderator");
+                      const now = new Date();
+                      const trialEnd = sub ? new Date(new Date(sub.trial_started_at).getTime() + 24 * 60 * 60 * 1000) : null;
+                      const subEnd = sub?.subscription_expires_at ? new Date(sub.subscription_expires_at) : null;
+                      const hasActiveSub = subEnd && subEnd > now;
+                      const trialActive = trialEnd && trialEnd > now && !hasActiveSub;
+                      const expired = !isPrivileged && !hasActiveSub && (!trialEnd || trialEnd <= now);
+
+                      return (
+                        <TableRow key={p.user_id}>
+                          <TableCell>
+                            <div>
+                              <p className="font-medium text-sm">{p.nome || "—"}</p>
+                              <p className="text-xs text-muted-foreground">{p.email}</p>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {sub ? format(new Date(sub.trial_started_at), "dd/MM/yyyy HH:mm") : "—"}
+                          </TableCell>
+                          <TableCell>
+                            {isPrivileged ? (
+                              <Badge className="text-xs bg-primary/20 text-primary border-primary/30">Admin/Mod</Badge>
+                            ) : hasActiveSub ? (
+                              <Badge className="text-xs bg-green-500/20 text-green-400 border-green-500/30">{sub?.plan_name || "Pago"}</Badge>
+                            ) : trialActive ? (
+                              <Badge variant="outline" className="text-xs border-yellow-500/50 text-yellow-400">Trial</Badge>
+                            ) : (
+                              <Badge variant="destructive" className="text-xs">Expirado</Badge>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            {isPrivileged ? <span className="text-muted-foreground">Ilimitado</span>
+                              : hasActiveSub ? <span className="text-green-400">{format(subEnd!, "dd/MM/yyyy")}</span>
+                              : trialActive ? <span className="text-yellow-400">{format(trialEnd!, "dd/MM/yyyy HH:mm")}</span>
+                              : <span className="text-destructive">Encerrado</span>}
+                          </TableCell>
+                          <TableCell>
+                            {isPrivileged ? null : expired ? (
+                              <div className="flex items-center gap-1 text-destructive text-xs"><Clock className="h-3 w-3" /> Bloqueado</div>
+                            ) : (
+                              <div className="flex items-center gap-1 text-green-400 text-xs"><ShieldCheck className="h-3 w-3" /> Ativo</div>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {!isPrivileged && (
+                              <div className="flex items-center justify-end gap-1">
+                                <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => { setEditingSubUser(p); setSubDays("30"); }}>
+                                  <CalendarPlus className="h-3.5 w-3.5" /> Estender
+                                </Button>
+                                {hasActiveSub && (
+                                  <Button size="sm" variant="ghost" className="h-7 text-xs text-destructive hover:text-destructive" onClick={() => handleRevokeSubscription(p.user_id)}>
+                                    Revogar
+                                  </Button>
+                                )}
+                              </div>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </TabsContent>
         </Tabs>
       </main>
+
+      {/* Extend Subscription Dialog */}
+      <Dialog open={!!editingSubUser} onOpenChange={(open) => !open && setEditingSubUser(null)}>
+        <DialogContent className="w-[90vw] sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><CreditCard className="h-4 w-4" /> Gerenciar Plano</DialogTitle>
+            <DialogDescription>
+              <strong>{editingSubUser?.nome || editingSubUser?.email}</strong>
+              {(() => {
+                const sub = subscriptions.find(s => s.user_id === editingSubUser?.user_id);
+                const subEnd = sub?.subscription_expires_at ? new Date(sub.subscription_expires_at) : null;
+                const hasActive = subEnd && subEnd > new Date();
+                return hasActive
+                  ? <span className="ml-1 text-green-400">· Vence {format(subEnd!, "dd/MM/yyyy")}</span>
+                  : <span className="ml-1 text-destructive">· Sem plano ativo</span>;
+              })()}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Dias a adicionar (a partir do vencimento atual)</Label>
+              <div className="flex flex-wrap gap-1.5">
+                {["7", "15", "30", "60", "90", "365"].map(d => (
+                  <Button key={d} size="sm" variant={subDays === d ? "default" : "outline"} className="text-xs px-3" onClick={() => setSubDays(d)}>
+                    {d}d
+                  </Button>
+                ))}
+              </div>
+              <Input type="number" min="1" value={subDays} onChange={e => setSubDays(e.target.value)} placeholder="Número de dias" className="mt-1" />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Adiciona <strong>{subDays} dias</strong> ao vencimento atual (ou a partir de hoje se não tiver plano).
+            </p>
+          </div>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            {subscriptions.find(s => s.user_id === editingSubUser?.user_id)?.subscription_expires_at && (
+              <Button variant="destructive" size="sm" className="gap-1 w-full sm:w-auto"
+                onClick={async () => { await handleRevokeSubscription(editingSubUser!.user_id); setEditingSubUser(null); }}>
+                Revogar plano
+              </Button>
+            )}
+            <Button variant="outline" onClick={() => setEditingSubUser(null)} className="w-full sm:w-auto">Cancelar</Button>
+            <Button onClick={handleExtendSubscription} disabled={savingSub} className="gap-2 w-full sm:w-auto">
+              {savingSub ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarPlus className="h-4 w-4" />}
+              Confirmar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Edit Dialog */}
       <Dialog open={!!editingProfile} onOpenChange={(open) => !open && setEditingProfile(null)}>

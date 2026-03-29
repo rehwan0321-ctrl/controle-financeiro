@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { supabase } from "@/integrations/supabase/client";
@@ -50,6 +50,7 @@ interface DelayCliente {
   deposito_pendente?: number;
   banco_deposito?: string;
   created_by_token?: string | null;
+  operator_link_id?: string | null;
   informacoes_adicionais?: string | null;
   data_deposito?: string | null;
 }
@@ -136,7 +137,7 @@ const HistoricoGeralDialog = ({ clientes, open, onOpenChange, fmt }: { clientes:
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+      <DialogContent className="w-[95vw] sm:max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <History className="h-5 w-5 text-primary" /> Histórico de Movimentações
@@ -355,7 +356,7 @@ const DelayEsportivo = () => {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [showSenha, setShowSenha] = useState<Record<string, boolean>>({});
   const [hideAllCredentials, setHideAllCredentials] = useState(false);
-  const [sortMode, setSortMode] = useState<"recentes" | "az">("az");
+  const [sortMode, setSortMode] = useState<"recentes" | "az">("recentes");
   const [showSearch, setShowSearch] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set());
@@ -366,8 +367,7 @@ const DelayEsportivo = () => {
   const [filtroDataSaque, setFiltroDataSaque] = useState<Date | undefined>(undefined);
   const [filtroDataSaqueOpen, setFiltroDataSaqueOpen] = useState(false);
   const [filtroNick, setFiltroNick] = useState<string>("todos");
-  const [quickFilter, setQuickFilter] = useState<"all" | "pendentes" | "concluidas" | "red">("all");
-  const [showPendentes, setShowPendentes] = useState(false);
+  const [quickFilter, setQuickFilter] = useState<"all" | "operando" | "pendentes" | "concluidas" | "devolvidos" | "red">("operando");
 
   // Dialog states
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -376,6 +376,8 @@ const DelayEsportivo = () => {
 
   // Deposit/Withdraw dialog
   const [transDialog, setTransDialog] = useState<{ type: "deposito" | "saque"; cliente: DelayCliente } | null>(null);
+  const [approveDialog, setApproveDialog] = useState<DelayCliente | null>(null);
+  const [approveSelectedLink, setApproveSelectedLink] = useState<string>("");
   const [transValor, setTransValor] = useState("");
   const [transCusto, setTransCusto] = useState("");
   const [transDividirLucro, setTransDividirLucro] = useState(true);
@@ -420,7 +422,8 @@ const DelayEsportivo = () => {
   const [editDate, setEditDate] = useState<Date>(new Date());
   const [depositoInicial, setDepositoInicial] = useState("");
   const [depositoBanco, setDepositoBanco] = useState<"santander" | "c6">("santander");
-  const [selectedLinkToken, setSelectedLinkToken] = useState<string>("admin");
+  const [selectedLinkToken, setSelectedLinkToken] = useState<string>("");
+  const [selectedOperatorLinkId, setSelectedOperatorLinkId] = useState<string>("");
   const [casaPopoverOpen, setCasaPopoverOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const processingRef = useRef(false);
@@ -586,15 +589,18 @@ const DelayEsportivo = () => {
     if (user) fetchBankBalances();
   }, [user]);
 
-  const handleApproveDeposit = async (cliente: DelayCliente) => {
+  const handleApproveDeposit = async (cliente: DelayCliente, linkId?: string) => {
     if (!user || !cliente.deposito_pendente || cliente.deposito_pendente <= 0) return;
     const depositoVal = cliente.deposito_pendente;
     const banco = cliente.banco_deposito || "santander";
 
-    // Move pending to depositos
+    // Move pending to depositos; operator link goes to operator_link_id (keeps created_by_token = fornecedor link intact)
+    const updatePayload: any = { depositos: depositoVal, deposito_pendente: 0, data_deposito: new Date().toISOString() };
+    if (linkId) updatePayload.operator_link_id = linkId;
+
     const { error: updateError } = await supabase
       .from("delay_clientes")
-      .update({ depositos: depositoVal, deposito_pendente: 0, data_deposito: new Date().toISOString() } as any)
+      .update(updatePayload)
       .eq("id", cliente.id);
 
     if (updateError) {
@@ -787,9 +793,10 @@ const DelayEsportivo = () => {
       if (c.status === "system") return false;
       const matchBusca = c.nome.toLowerCase().includes(busca.toLowerCase()) ||
         (c.login || "").toLowerCase().includes(busca.toLowerCase());
+      const isDevolvido = c.status === "devolvido" || (c.saques > 0 && Math.abs(c.saques - c.depositos) < 0.01 && Math.abs(c.lucro ?? 0) < 0.01);
       const matchStatus = filtroStatus === "todos" ||
         (filtroStatus === "ativos" && (c.status === "ativo" || c.status === "saque_pendente")) ||
-        (filtroStatus === "concluidos" && c.status === "concluido");
+        (filtroStatus === "concluidos" && c.status === "concluido" && !isDevolvido);
       const matchCasa = filtroCasa === "todas" || c.casa === filtroCasa;
       const matchDataSaque = !filtroDataSaque || allTransacoes.some(t =>
         t.cliente_id === c.id &&
@@ -797,17 +804,26 @@ const DelayEsportivo = () => {
         t.lucro > 0 &&
         format(new Date(t.data_transacao + "T12:00:00"), "yyyy-MM-dd") === format(filtroDataSaque, "yyyy-MM-dd")
       );
+      const selectedLink = shareLinks.find(l => l.id === filtroNick);
+      const isOperatorLink = selectedLink && (selectedLink.tipo === "visualizador_individual" || selectedLink.tipo === "visualizador_vodka");
       const matchNick = filtroNick === "todos" ||
         (filtroNick === "direto" && !c.created_by_token) ||
-        (c.created_by_token === filtroNick);
+        (isOperatorLink ? c.operator_link_id === filtroNick : c.created_by_token === filtroNick);
+      const isOperando = c.depositos > 0 && c.saques === 0;
       const matchQuick = quickFilter === "all" ||
+        (quickFilter === "operando" && isOperando) ||
         (quickFilter === "pendentes" && (c.status === "saque_pendente" || (c.deposito_pendente ?? 0) > 0)) ||
-        (quickFilter === "concluidas" && (c.status === "concluido" || c.status === "devolvido")) ||
+        (quickFilter === "concluidas" && c.status === "concluido" && !isDevolvido) ||
+        (quickFilter === "devolvidos" && isDevolvido) ||
         (quickFilter === "red" && c.lucro < 0);
       return matchBusca && matchStatus && matchCasa && matchDataSaque && matchNick && matchQuick;
     });
+    const casaOrder: Record<string, number> = { "Bet365": 1, "Betano": 2, "Superbet": 3, "Betfair": 4, "Sportingbet": 5, "Novibet": 6 };
+    const getCasaOrder = (casa: string) => casaOrder[casa] ?? 99;
     if (sortMode === "az") {
-      result = result.sort((a, b) => a.casa.localeCompare(b.casa, "pt-BR") || a.nome.localeCompare(b.nome, "pt-BR"));
+      result = result.sort((a, b) => getCasaOrder(a.casa) - getCasaOrder(b.casa) || a.casa.localeCompare(b.casa, "pt-BR") || a.nome.localeCompare(b.nome, "pt-BR"));
+    } else {
+      result = result.sort((a, b) => getCasaOrder(a.casa) - getCasaOrder(b.casa) || new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
     }
     return result;
   }, [clientes, busca, filtroStatus, filtroCasa, sortMode, filtroDataSaque, allTransacoes, filtroNick, quickFilter]);
@@ -838,7 +854,7 @@ const DelayEsportivo = () => {
       return acc - c.depositos;
     }, 0);
 
-    const ativas = visibleClientes.filter(c => c.status === "ativo").length;
+    const ativas = visibleClientes.filter(c => c.depositos > 0 && c.saques === 0 && (c.deposito_pendente ?? 0) <= 0).length;
     const depositosAtivos = ativasClientes.reduce((a, c) => a + c.depositos, 0);
     const saldoTotal = bankBalances.santander + bankBalances.c6;
     return { totalDepositos, totalSaques, totalLucro, totalCustos, saldo, saldoTotal, total: visibleClientes.length, ativas, depositosAtivos };
@@ -1043,7 +1059,8 @@ const DelayEsportivo = () => {
     resetForm();
     setDepositoInicial("");
     setDepositoBanco("santander");
-    setSelectedLinkToken("admin");
+    setSelectedLinkToken("__none__");
+    setSelectedOperatorLinkId("__none__");
     setDialogOpen(true);
   };
 
@@ -1081,7 +1098,7 @@ const DelayEsportivo = () => {
 
   const copyShareLink = (token: string, tipo: string) => {
     const path = (tipo === "visualizador" || tipo === "visualizador_vodka" || tipo === "visualizador_individual") ? "visualizar-delay" : "adicionar-cliente";
-    const url = `${window.location.origin}${import.meta.env.BASE_URL}${path}?token=${token}`;
+    const url = `https://rwinvestimentos.com.br/${path}?token=${token}`;
     navigator.clipboard.writeText(url);
     toast({ title: "Link copiado!" });
   };
@@ -1117,6 +1134,8 @@ const DelayEsportivo = () => {
     });
     setEditDate(new Date(c.created_at));
     setDepositoInicial(String(c.depositos || 0));
+    setSelectedLinkToken(c.created_by_token || "__none__");
+    setSelectedOperatorLinkId(c.operator_link_id || "__none__");
     setDialogOpen(true);
   };
 
@@ -1127,15 +1146,18 @@ const DelayEsportivo = () => {
     if (editCliente) {
       const novoDeposito = parseFloat(depositoInicial) || 0;
       const { error } = await supabase.from("delay_clientes")
-        .update({ nome: form.nome, casa: form.casa, login: form.login || null, senha: form.senha || null, fornecedor: form.fornecedor || null, tipo: form.tipo, status: form.status, operacao: form.operacao, created_at: editDate.toISOString(), depositos: novoDeposito, informacoes_adicionais: form.informacoes_adicionais || null })
+        .update({ nome: form.nome, casa: form.casa, login: form.login || null, senha: form.senha || null, fornecedor: form.fornecedor || null, tipo: form.tipo, status: form.status, operacao: form.operacao, created_at: editDate.toISOString(), depositos: novoDeposito, informacoes_adicionais: form.informacoes_adicionais || null, created_by_token: (selectedLinkToken && selectedLinkToken !== "__none__") ? selectedLinkToken : null, operator_link_id: (selectedOperatorLinkId && selectedOperatorLinkId !== "__none__") ? selectedOperatorLinkId : null } as any)
         .eq("id", editCliente.id);
       if (error) toast({ title: "Erro", description: getSafeErrorMessage(error), variant: "destructive" });
       else toast({ title: "Cliente atualizado!" });
     } else {
       const depositoVal = parseFloat(depositoInicial) || 0;
-      const chosenToken = selectedLinkToken !== "admin" ? selectedLinkToken : null;
+
+      // created_by_token is a FK to delay_share_links(id) — use link.id directly
+      const chosenToken: string | null = (selectedLinkToken && selectedLinkToken !== "__none__") ? selectedLinkToken : null;
+
       const { data: newCliente, error } = await supabase.from("delay_clientes")
-        .insert({ nome: form.nome, casa: form.casa, login: form.login || null, senha: form.senha || null, fornecedor: form.fornecedor || null, tipo: form.tipo, status: form.status, operacao: form.operacao, user_id: user!.id, depositos: depositoVal, banco_deposito: depositoBanco, created_by_token: chosenToken } as any)
+        .insert({ nome: form.nome, casa: form.casa, login: form.login || null, senha: form.senha || null, fornecedor: form.fornecedor || null, tipo: form.tipo, status: form.status, operacao: form.operacao, user_id: user!.id, depositos: depositoVal, banco_deposito: depositoBanco, created_by_token: chosenToken, operator_link_id: (selectedOperatorLinkId && selectedOperatorLinkId !== "__none__") ? selectedOperatorLinkId : null } as any)
         .select().single();
       if (error) toast({ title: "Erro", description: getSafeErrorMessage(error), variant: "destructive" });
       else {
@@ -1338,6 +1360,12 @@ const DelayEsportivo = () => {
           await supabase.from("bank_balances").insert({ user_id: user!.id, banco, saldo: newBalance });
         }
         setBankBalances(prev => ({ ...prev, [banco]: newBalance }));
+      }
+
+      // Ao confirmar saque, mover conta para concluído ou devolvido automaticamente
+      if (type === "saque") {
+        const isDevolucaoStatus = Math.abs(valor - cliente.depositos) < 0.01;
+        await supabase.from("delay_clientes").update({ status: isDevolucaoStatus ? "devolvido" : "concluido" }).eq("id", cliente.id);
       }
 
       setTransDialog(null);
@@ -1730,49 +1758,57 @@ const DelayEsportivo = () => {
           </Card>
         </div>
 
-        {/* Caixa de Saldo */}
-        <Card className="border-amber-500/40">
-          <CardContent className="p-4 sm:p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="rounded-xl bg-amber-500/20 p-2.5">
-                <Wallet className="h-5 w-5 text-amber-500" />
-              </div>
-              <div>
-                <p className="font-bold text-sm">Caixa de Saldo</p>
-                <p className="text-xs text-muted-foreground">Visão consolidada de todos os clientes</p>
+        {/* Histórico Geral Dialog */}
+        <HistoricoGeralDialog clientes={clientes} open={showHistorico} onOpenChange={setShowHistorico} fmt={fmt} />
+
+        {/* Approve Deposit Dialog */}
+        <Dialog open={!!approveDialog} onOpenChange={(open) => !open && setApproveDialog(null)}>
+          <DialogContent className="w-[92vw] sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Check className="h-4 w-4 text-emerald-400" /> Aprovar Depósito
+              </DialogTitle>
+              <DialogDescription>
+                <span className="font-semibold">{approveDialog?.nome}</span> — R$ {(approveDialog?.deposito_pendente ?? 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 py-1">
+              <Label className="text-xs text-muted-foreground uppercase tracking-wider">Atribuir ao operador</Label>
+              <div className="grid gap-1.5">
+                {/* No operator option */}
+                <button
+                  onClick={() => setApproveSelectedLink("")}
+                  className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm text-left transition-colors ${approveSelectedLink === "" ? "border-primary bg-primary/10 text-primary" : "border-border hover:border-primary/50"}`}
+                >
+                  <span className="h-2 w-2 rounded-full bg-muted-foreground/40 shrink-0" />
+                  Sem operador (manter atual)
+                </button>
+                {/* Individual viewer links */}
+                {shareLinks.filter(l => l.ativo && l.tipo === "visualizador_individual").map(link => (
+                  <button
+                    key={link.id}
+                    onClick={() => setApproveSelectedLink(link.id)}
+                    className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm text-left transition-colors ${approveSelectedLink === link.id ? "border-primary bg-primary/10 text-primary" : "border-border hover:border-primary/50"}`}
+                  >
+                    <span className={`h-2 w-2 rounded-full shrink-0 ${approveSelectedLink === link.id ? "bg-primary" : "bg-muted-foreground/40"}`} />
+                    {link.nick || link.token.slice(0, 8)}
+                  </button>
+                ))}
               </div>
             </div>
-
-
-            {/* Stats Grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-              <div className="bg-muted/30 rounded-xl p-4 border border-border/50">
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Investido</p>
-                <p className="text-lg sm:text-xl font-bold font-mono">{fmt(stats.totalDepositos)}</p>
-                <p className="text-[10px] text-muted-foreground flex items-center gap-1 mt-1">
-                  <ArrowDownCircle className="h-3 w-3" /> Depósitos acumulados
-                </p>
-              </div>
-              <div className="bg-muted/30 rounded-xl p-4 border border-border/50">
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Custos</p>
-                <p className="text-lg sm:text-xl font-bold font-mono">{fmt(stats.totalCustos)}</p>
-                <p className="text-[10px] text-muted-foreground flex items-center gap-1 mt-1">
-                  <DollarSign className="h-3 w-3" /> Custos totais das contas
-                </p>
-              </div>
-              <div className="bg-muted/30 rounded-xl p-4 border border-border/50">
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Ativas</p>
-                <p className="text-lg sm:text-xl font-bold font-mono">{stats.ativas} <span className="text-sm text-muted-foreground font-normal">/ {stats.total}</span></p>
-                <p className="text-[10px] text-muted-foreground flex items-center gap-1 mt-1">
-                  <Clock className="h-3 w-3" /> Operando
-                </p>
-              </div>
-            </div>
-
-            {/* Histórico Geral Dialog */}
-            <HistoricoGeralDialog clientes={clientes} open={showHistorico} onOpenChange={setShowHistorico} fmt={fmt} />
-          </CardContent>
-        </Card>
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => setApproveDialog(null)}>Cancelar</Button>
+              <Button className="bg-emerald-500 hover:bg-emerald-600 text-white gap-1" onClick={async () => {
+                if (approveDialog) {
+                  await handleApproveDeposit(approveDialog, approveSelectedLink || undefined);
+                  setApproveDialog(null);
+                }
+              }}>
+                <Check className="h-4 w-4" /> Confirmar Aprovação
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <Card className="border border-border/50">
           <CardContent className="p-3 sm:p-4">
@@ -1792,10 +1828,10 @@ const DelayEsportivo = () => {
                 </div>
               </div>
               <div className="flex items-center justify-center gap-2.5">
-                <div className="rounded-lg bg-primary/10 p-2"><ArrowUpCircle className="h-4 w-4 text-primary" /></div>
+                <div className="rounded-lg bg-red-500/10 p-2"><DollarSign className="h-4 w-4 text-red-400" /></div>
                 <div>
-                  <p className="text-[9px] uppercase tracking-wider text-muted-foreground">Saques</p>
-                  <p className="text-lg font-bold font-mono">{fmt(stats.totalSaques)}</p>
+                  <p className="text-[9px] uppercase tracking-wider text-muted-foreground">Custos</p>
+                  <p className="text-lg font-bold font-mono text-red-400">{fmt(stats.totalCustos)}</p>
                 </div>
               </div>
               <div className="flex items-center justify-center gap-2.5">
@@ -1811,22 +1847,45 @@ const DelayEsportivo = () => {
           </CardContent>
         </Card>
 
+        {/* Period Stats Card */}
+        <Card className="border border-primary/30 bg-primary/5">
+          <CardContent className="p-3 sm:p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <CalendarDays className="h-4 w-4 text-primary" />
+              <p className="text-xs font-semibold">
+                Lucro {periodo === "diario" ? `de ${format(selectedDate, "dd/MM/yyyy")}` : periodo === "semanal" ? "da Semana" : "do Mês"}
+              </p>
+              <Badge variant="outline" className="text-[10px] ml-auto">{periodStats.totalTrans} transações</Badge>
+            </div>
+            <div className="grid grid-cols-3 gap-4 text-center">
+              <div>
+                <p className="text-[9px] uppercase tracking-wider text-muted-foreground">Saques</p>
+                <p className="text-base font-bold font-mono">{fmt(periodStats.saques)}</p>
+              </div>
+              <div>
+                <p className="text-[9px] uppercase tracking-wider text-muted-foreground">Custos</p>
+                <p className="text-base font-bold font-mono">{fmt(periodStats.custos)}</p>
+              </div>
+              <div className="cursor-pointer" onClick={() => setCalendarOpen(true)}>
+                <p className="text-[9px] uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors">Lucro Diário</p>
+                <p className={`text-base font-bold font-mono ${periodStats.lucro >= 0 ? "text-primary" : "text-destructive"}`}>
+                  {periodStats.lucro >= 0 ? "+" : ""}{fmt(periodStats.lucro)}
+                </p>
+                <p className="text-[8px] text-muted-foreground mt-0.5">{format(selectedDate, "dd/MM/yyyy")} 📅</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Search & Filters */}
         <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
           <div className="relative flex-1 w-full">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input placeholder="Buscar..." value={busca} onChange={e => setBusca(e.target.value)} className="pl-9" />
           </div>
-          <div className="flex gap-2 flex-wrap">
-            {(["todos", "ativos", "concluidos"] as FiltroStatus[]).map(s => (
-              <Button key={s} size="sm" variant={filtroStatus === s ? "default" : "outline"}
-                onClick={() => setFiltroStatus(s)}
-                className={`text-xs capitalize ${s === "concluidos" && filtroStatus === s ? "bg-purple-600 hover:bg-purple-700 text-white border-purple-600" : ""}`}>
-                {s === "concluidos" ? "Concluídos" : s.charAt(0).toUpperCase() + s.slice(1)}
-              </Button>
-            ))}
+          <div className="flex gap-2 flex-wrap w-full sm:w-auto">
             <Select value={filtroCasa} onValueChange={setFiltroCasa}>
-              <SelectTrigger className="w-[140px] h-9 text-xs">
+              <SelectTrigger className="w-full sm:w-[140px] h-9 text-xs">
                 <SelectValue placeholder="Todas as Casas" />
               </SelectTrigger>
               <SelectContent>
@@ -1876,19 +1935,7 @@ const DelayEsportivo = () => {
                 )}
               </PopoverContent>
               </Popover>
-            <Select value={filtroNick} onValueChange={setFiltroNick}>
-              <SelectTrigger className="h-8 w-auto min-w-[120px] text-xs">
-                <Link className="h-3.5 w-3.5 mr-1" />
-                <SelectValue placeholder="Fornecedor" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todos">Todos</SelectItem>
-                <SelectItem value="direto">Cadastro direto</SelectItem>
-                {shareLinks.filter(l => l.nick && l.tipo !== "visualizador" && l.tipo !== "visualizador_vodka").map(link => (
-                  <SelectItem key={link.id} value={link.id}>{link.nick}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+
             <Button size="sm" variant="outline" onClick={() => setShareLinkDialogOpen(true)}>
               <Share2 className="h-4 w-4 mr-1" /> Compartilhar
             </Button>
@@ -1898,12 +1945,128 @@ const DelayEsportivo = () => {
           </div>
         </div>
 
-        {/* Period filter */}
-        <div className="flex justify-end gap-1 items-center flex-wrap">
+        {/* Period filter + Quick Filters */}
+        <div className="flex justify-between gap-2 items-center flex-wrap">
+        {/* Quick Filters - left */}
+        {(() => {
+          const allVisible = clientes.filter(c => c.status !== "system");
+          const pendentesCount = allVisible.filter(c => c.status === "saque_pendente" || (c.deposito_pendente ?? 0) > 0).length;
+          const isDevolvidoFn = (c: DelayCliente) => c.status === "devolvido" || (c.saques > 0 && Math.abs(c.saques - c.depositos) < 0.01 && Math.abs(c.lucro ?? 0) < 0.01);
+          const concluidasCount = allVisible.filter(c => c.status === "concluido" && !isDevolvidoFn(c)).length;
+          const devolvidosCount = allVisible.filter(isDevolvidoFn).length;
+          const operandoCount = allVisible.filter(c => c.depositos > 0 && c.saques === 0).length;
+          const redCount = allVisible.filter(c => c.lucro < 0).length;
+          const activeLinks = shareLinks.filter(l => l.ativo && l.tipo !== "visualizador" && l.tipo !== "visualizador_vodka");
+          return (
+            <div className="flex flex-wrap gap-2 items-center">
+              <Button
+                size="sm"
+                variant={quickFilter === "all" ? "default" : "outline"}
+                className="gap-1.5 text-xs"
+                onClick={() => { setQuickFilter("all"); setFiltroStatus("todos"); }}
+              >
+                Todos
+                <Badge className="ml-0.5 text-[10px] px-1.5 py-0">{allVisible.length}</Badge>
+              </Button>
+              <Button
+                size="sm"
+                variant={quickFilter === "operando" ? "default" : "outline"}
+                className={`gap-1.5 text-xs ${quickFilter === "operando" ? "bg-blue-500 hover:bg-blue-600 border-blue-500 text-white" : "border-blue-500/40 text-blue-400 hover:bg-blue-500/10"}`}
+                onClick={() => { const next = quickFilter === "operando" ? "all" : "operando"; setQuickFilter(next); if (next !== "all") setFiltroStatus("todos"); }}
+              >
+                <TrendingUp className="h-3.5 w-3.5" />
+                Operando
+                <Badge className="ml-0.5 text-[10px] px-1.5 py-0 bg-blue-500/20 text-blue-400 border-blue-500/30">{operandoCount}</Badge>
+              </Button>
+              <Button
+                size="sm"
+                variant={quickFilter === "pendentes" ? "default" : "outline"}
+                className={`gap-1.5 text-xs ${quickFilter === "pendentes" ? "bg-orange-500 hover:bg-orange-600 border-orange-500 text-white" : "border-orange-500/40 text-orange-400 hover:bg-orange-500/10"}`}
+                onClick={() => { const next = quickFilter === "pendentes" ? "all" : "pendentes"; setQuickFilter(next); if (next !== "all") setFiltroStatus("todos"); }}
+              >
+                <Clock className="h-3.5 w-3.5" />
+                Pendentes
+                <Badge className="ml-0.5 text-[10px] px-1.5 py-0 bg-orange-500/20 text-orange-400 border-orange-500/30">{pendentesCount}</Badge>
+              </Button>
+              <Button
+                size="sm"
+                variant={quickFilter === "concluidas" ? "default" : "outline"}
+                className={`gap-1.5 text-xs ${quickFilter === "concluidas" ? "bg-emerald-600 hover:bg-emerald-700 border-emerald-600 text-white" : "border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10"}`}
+                onClick={() => { const next = quickFilter === "concluidas" ? "all" : "concluidas"; setQuickFilter(next); if (next !== "all") setFiltroStatus("todos"); }}
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                Concluídos
+                <Badge className="ml-0.5 text-[10px] px-1.5 py-0 bg-emerald-500/20 text-emerald-400 border-emerald-500/30">{concluidasCount}</Badge>
+              </Button>
+              {redCount > 0 && (
+                <Button
+                  size="sm"
+                  variant={quickFilter === "red" ? "default" : "outline"}
+                  className={`gap-1.5 text-xs ${quickFilter === "red" ? "bg-red-600 hover:bg-red-700 border-red-600 text-white" : "border-red-500/40 text-red-400 hover:bg-red-500/10"}`}
+                  onClick={() => { const next = quickFilter === "red" ? "all" : "red"; setQuickFilter(next); if (next !== "all") setFiltroStatus("todos"); }}
+                >
+                  <TrendingDown className="h-3.5 w-3.5" />
+                  Red
+                  <Badge className="ml-0.5 text-[10px] px-1.5 py-0 bg-red-500/20 text-red-400 border-red-500/30">{redCount}</Badge>
+                </Button>
+              )}
+              <Button
+                size="sm"
+                variant={quickFilter === "devolvidos" ? "default" : "outline"}
+                className={`gap-1.5 text-xs ${quickFilter === "devolvidos" ? "bg-yellow-600 hover:bg-yellow-700 border-yellow-600 text-white" : "border-yellow-500/40 text-yellow-400 hover:bg-yellow-500/10"}`}
+                onClick={() => { const next = quickFilter === "devolvidos" ? "all" : "devolvidos"; setQuickFilter(next); if (next !== "all") setFiltroStatus("todos"); }}
+                title="Filtrar devolvidos"
+              >
+                <TrendingUp className="h-3.5 w-3.5" />
+                Devolvidos
+                <Badge className="ml-0.5 text-[10px] px-1.5 py-0 bg-yellow-500/20 text-yellow-400 border-yellow-500/30">{devolvidosCount}</Badge>
+              </Button>
+              {activeLinks.length > 0 && (
+                <Select value={filtroNick} onValueChange={v => { setFiltroNick(v); setQuickFilter("all"); if (v !== "todos") setFiltroStatus("todos"); }}>
+                  <SelectTrigger className="h-8 w-auto min-w-[110px] text-xs border-blue-500/40 text-blue-400 gap-1.5">
+                    <Link className="h-3.5 w-3.5" />
+                    <SelectValue placeholder="Links" />
+                    <ChevronDown className="h-3.5 w-3.5 ml-auto" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todos">Todos os Links</SelectItem>
+                    <SelectItem value="direto">Cadastro direto</SelectItem>
+                    {(() => {
+                      const fornLinks = activeLinks.filter(l => l.tipo !== "visualizador_individual" && l.tipo !== "visualizador_vodka");
+                      const opLinks = activeLinks.filter(l => l.tipo === "visualizador_individual" || l.tipo === "visualizador_vodka");
+                      return (
+                        <>
+                          {opLinks.length > 0 && (
+                            <SelectGroup>
+                              <SelectLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">Operadores</SelectLabel>
+                              {opLinks.map(link => (
+                                <SelectItem key={link.id} value={link.id}>{link.nick || link.token.slice(0, 8)}</SelectItem>
+                              ))}
+                            </SelectGroup>
+                          )}
+                          {fornLinks.length > 0 && (
+                            <SelectGroup>
+                              <SelectLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">Fornecedores</SelectLabel>
+                              {fornLinks.map(link => (
+                                <SelectItem key={link.id} value={link.id}>{link.nick || link.token.slice(0, 8)}</SelectItem>
+                              ))}
+                            </SelectGroup>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+          );
+        })()}
+        {/* Icon buttons + Period - right */}
+        <div className="flex gap-1 items-center flex-wrap justify-end">
           <Button
             variant="ghost"
             size="icon"
-            className="rounded-lg bg-muted/60 hover:bg-muted h-7 w-7"
+            className="rounded-lg bg-muted/60 hover:bg-muted h-9 w-9 sm:h-7 sm:w-7"
             onClick={() => setHideAllCredentials(prev => !prev)}
             title={hideAllCredentials ? "Mostrar credenciais" : "Ocultar credenciais"}
           >
@@ -1912,7 +2075,7 @@ const DelayEsportivo = () => {
           <Button
             variant="ghost"
             size="icon"
-            className="rounded-lg bg-muted/60 hover:bg-muted h-7 w-7"
+            className="rounded-lg bg-muted/60 hover:bg-muted h-9 w-9 sm:h-7 sm:w-7"
             onClick={exportToXLSX}
             title="Exportar planilha"
           >
@@ -1921,7 +2084,7 @@ const DelayEsportivo = () => {
           <Button
             variant="ghost"
             size="icon"
-            className={`rounded-lg h-7 w-7 ${selectionMode ? "bg-primary/20 text-primary" : "bg-muted/60 hover:bg-muted"}`}
+            className={`rounded-lg h-9 w-9 sm:h-7 sm:w-7 ${selectionMode ? "bg-primary/20 text-primary" : "bg-muted/60 hover:bg-muted"}`}
             onClick={() => { setSelectionMode(prev => !prev); setSelectedCards(new Set()); }}
             title={selectionMode ? "Sair da seleção" : "Selecionar cards"}
           >
@@ -1930,7 +2093,7 @@ const DelayEsportivo = () => {
           <Button
             variant="ghost"
             size="icon"
-            className={`rounded-lg h-7 w-7 ${layoutCols === 3 ? "bg-primary/20 text-primary" : "bg-muted/60 hover:bg-muted"}`}
+            className={`rounded-lg h-9 w-9 sm:h-7 sm:w-7 ${layoutCols === 3 ? "bg-primary/20 text-primary" : "bg-muted/60 hover:bg-muted"}`}
             onClick={() => setLayoutCols(prev => prev === 3 ? 4 : 3)}
             title={layoutCols === 3 ? "Layout 4 colunas" : "Layout 3 colunas"}
           >
@@ -1939,7 +2102,7 @@ const DelayEsportivo = () => {
           <Button
             variant="ghost"
             size="icon"
-            className={`rounded-lg h-7 w-7 ${viewMode === "table" ? "bg-primary/20 text-primary" : "bg-muted/60 hover:bg-muted"}`}
+            className={`rounded-lg h-9 w-9 sm:h-7 sm:w-7 ${viewMode === "table" ? "bg-primary/20 text-primary" : "bg-muted/60 hover:bg-muted"}`}
             onClick={() => setViewMode(prev => prev === "cards" ? "table" : "cards")}
             title={viewMode === "cards" ? "Visualização em tabela" : "Visualização em cards"}
           >
@@ -1976,97 +2139,7 @@ const DelayEsportivo = () => {
             </PopoverContent>
           </Popover>
         </div>
-
-        {/* Period Stats Card */}
-        <Card className="border border-primary/30 bg-primary/5">
-          <CardContent className="p-3 sm:p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <CalendarDays className="h-4 w-4 text-primary" />
-              <p className="text-xs font-semibold">
-                Lucro {periodo === "diario" ? `de ${format(selectedDate, "dd/MM/yyyy")}` : periodo === "semanal" ? "da Semana" : "do Mês"}
-              </p>
-              <Badge variant="outline" className="text-[10px] ml-auto">{periodStats.totalTrans} transações</Badge>
-            </div>
-            <div className="grid grid-cols-3 gap-4 text-center">
-              <div>
-                <p className="text-[9px] uppercase tracking-wider text-muted-foreground">Saques</p>
-                <p className="text-base font-bold font-mono">{fmt(periodStats.saques)}</p>
-              </div>
-              <div>
-                <p className="text-[9px] uppercase tracking-wider text-muted-foreground">Custos</p>
-                <p className="text-base font-bold font-mono">{fmt(periodStats.custos)}</p>
-              </div>
-              <div className="cursor-pointer" onClick={() => setCalendarOpen(true)}>
-                <p className="text-[9px] uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors">Lucro Diário</p>
-                <p className={`text-base font-bold font-mono ${periodStats.lucro >= 0 ? "text-primary" : "text-destructive"}`}>
-                  {periodStats.lucro >= 0 ? "+" : ""}{fmt(periodStats.lucro)}
-                </p>
-                <p className="text-[8px] text-muted-foreground mt-0.5">{format(selectedDate, "dd/MM/yyyy")} 📅</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Quick Filters */}
-        {(() => {
-          const allVisible = clientes.filter(c => c.status !== "system");
-          const pendentesCount = allVisible.filter(c => c.status === "saque_pendente" || (c.deposito_pendente ?? 0) > 0).length;
-          const concluidasCount = allVisible.filter(c => c.status === "concluido" || c.status === "devolvido").length;
-          const redCount = allVisible.filter(c => c.lucro < 0).length;
-          const activeLinks = shareLinks.filter(l => l.ativo && l.tipo !== "visualizador" && l.tipo !== "visualizador_vodka");
-          return (
-            <div className="flex flex-wrap gap-2 items-center">
-              <Button
-                size="sm"
-                variant={quickFilter === "pendentes" ? "default" : "outline"}
-                className={`gap-1.5 text-xs ${quickFilter === "pendentes" ? "bg-orange-500 hover:bg-orange-600 border-orange-500 text-white" : "border-orange-500/40 text-orange-400 hover:bg-orange-500/10"}`}
-                onClick={() => setQuickFilter(quickFilter === "pendentes" ? "all" : "pendentes")}
-              >
-                <Clock className="h-3.5 w-3.5" />
-                Pendentes
-                <Badge className="ml-0.5 text-[10px] px-1.5 py-0 bg-orange-500/20 text-orange-400 border-orange-500/30">{pendentesCount}</Badge>
-              </Button>
-              <Button
-                size="sm"
-                variant={quickFilter === "concluidas" ? "default" : "outline"}
-                className={`gap-1.5 text-xs ${quickFilter === "concluidas" ? "bg-emerald-600 hover:bg-emerald-700 border-emerald-600 text-white" : "border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10"}`}
-                onClick={() => setQuickFilter(quickFilter === "concluidas" ? "all" : "concluidas")}
-              >
-                <CheckCircle2 className="h-3.5 w-3.5" />
-                Concluídas
-                <Badge className="ml-0.5 text-[10px] px-1.5 py-0 bg-emerald-500/20 text-emerald-400 border-emerald-500/30">{concluidasCount}</Badge>
-              </Button>
-              {redCount > 0 && (
-                <Button
-                  size="sm"
-                  variant={quickFilter === "red" ? "default" : "outline"}
-                  className={`gap-1.5 text-xs ${quickFilter === "red" ? "bg-red-600 hover:bg-red-700 border-red-600 text-white" : "border-red-500/40 text-red-400 hover:bg-red-500/10"}`}
-                  onClick={() => setQuickFilter(quickFilter === "red" ? "all" : "red")}
-                >
-                  <TrendingDown className="h-3.5 w-3.5" />
-                  Red
-                  <Badge className="ml-0.5 text-[10px] px-1.5 py-0 bg-red-500/20 text-red-400 border-red-500/30">{redCount}</Badge>
-                </Button>
-              )}
-              {activeLinks.length > 0 && (
-                <Select value={filtroNick} onValueChange={v => { setFiltroNick(v); setQuickFilter("all"); }}>
-                  <SelectTrigger className="h-8 w-auto min-w-[110px] text-xs border-blue-500/40 text-blue-400 gap-1.5">
-                    <Link className="h-3.5 w-3.5" />
-                    <SelectValue placeholder="Links" />
-                    <ChevronDown className="h-3.5 w-3.5 ml-auto" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="todos">Todos os Links</SelectItem>
-                    <SelectItem value="direto">Cadastro direto</SelectItem>
-                    {activeLinks.map(link => (
-                      <SelectItem key={link.id} value={link.token}>{link.nick || link.token.slice(0, 8)}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            </div>
-          );
-        })()}
+        </div>
 
         {/* Bulk Action Bar */}
         {selectionMode && (
@@ -2086,28 +2159,6 @@ const DelayEsportivo = () => {
           </div>
         )}
 
-        {/* Pendentes toggle */}
-        {(() => {
-          const pendingCount = filtered.filter(c => (c.deposito_pendente ?? 0) > 0).length;
-          if (pendingCount === 0) return null;
-          return (
-            <div className="flex justify-end">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setShowPendentes(!showPendentes)}
-                className="border-orange-500/50 text-orange-400 hover:bg-orange-500/10 hover:text-orange-300 gap-1.5"
-              >
-                <Clock className="h-3.5 w-3.5" />
-                Pendentes
-                <Badge className="ml-0.5 text-[10px] px-1.5 py-0 bg-orange-500/20 text-orange-400 border-orange-500/30">
-                  {pendingCount}
-                </Badge>
-                <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", showPendentes && "rotate-180")} />
-              </Button>
-            </div>
-          );
-        })()}
 
         {/* Client Cards / Table */}
         {loading ? (
@@ -2131,7 +2182,7 @@ const DelayEsportivo = () => {
                 </tr>
               </thead>
               <tbody>
-                {(showPendentes ? [...filtered].sort((a, b) => {
+                {(quickFilter === "pendentes" ? [...filtered].sort((a, b) => {
                   const getOrder = (c: DelayCliente) => {
                     if (c.status === "saque_pendente") return 0;
                     if (c.status === "ativo" && c.operacao === "operando" && (c.deposito_pendente ?? 0) <= 0) return 1;
@@ -2197,7 +2248,7 @@ const DelayEsportivo = () => {
             transition={{ duration: 0.25, ease: "easeOut" }}
             className={`grid grid-cols-1 gap-3 ${layoutCols === 3 ? "sm:grid-cols-2 lg:grid-cols-3" : "sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"}`}
           >
-            {(showPendentes ? [...filtered].sort((a, b) => {
+            {(quickFilter === "pendentes" ? [...filtered].sort((a, b) => {
               const getOrder = (c: DelayCliente) => {
                 if (c.status === "saque_pendente") return 0;
                 if (c.status === "ativo" && c.operacao === "operando" && (c.deposito_pendente ?? 0) <= 0) return 1;
@@ -2299,9 +2350,14 @@ const DelayEsportivo = () => {
                           <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0 opacity-40 hover:opacity-100" onClick={() => copyToClipboard(c.informacoes_adicionais!)}><Copy className="h-3 w-3" /></Button>
                         </div>
                       )}
-                      <p className="text-muted-foreground uppercase tracking-wider text-[11px]">
-                        {c.fornecedor && c.fornecedor.trim() !== "" ? `FORNECEDOR ${c.fornecedor}` : "Sem fornecedor"}
-                      </p>
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-muted-foreground uppercase tracking-wider text-[11px]">
+                          {c.fornecedor && c.fornecedor.trim() !== ""
+                            ? `FORNECEDOR ${c.fornecedor.replace(/^fornecedor\s+/i, "")}`
+                            : "Sem fornecedor"}
+                        </span>
+                        {(() => { const opLink = shareLinks.find(l => l.id === c.operator_link_id); return opLink?.nick ? <span className="text-muted-foreground uppercase tracking-wider text-[11px]">OPERADOR {opLink.nick}</span> : null; })()}
+                      </div>
                     </div>
                   </div>
 
@@ -2369,7 +2425,7 @@ const DelayEsportivo = () => {
                         </div>
                         <div className="flex gap-1.5 shrink-0">
                           <Button size="sm" className="bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-500 border-0 text-xs h-7 px-3"
-                            onClick={() => handleApproveDeposit(c)}>
+                            onClick={() => { setApproveDialog(c); setApproveSelectedLink(c.created_by_token || ""); }}>
                             <Check className="h-3 w-3 mr-1" /> Aprovar
                           </Button>
                           <Button size="sm" variant="ghost" className="text-destructive text-xs h-7 px-2"
@@ -2443,7 +2499,7 @@ const DelayEsportivo = () => {
 
       {/* New/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="w-[95vw] sm:max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editCliente ? "Editar Cliente" : "Adicionar Cliente"}</DialogTitle>
             <DialogDescription className="sr-only">
@@ -2539,26 +2595,37 @@ const DelayEsportivo = () => {
                 </div>
               )}
             </div>
-            {!editCliente && (() => {
-              const fornecedorLinks = shareLinks.filter(l => l.ativo && l.tipo !== "visualizador" && l.tipo !== "visualizador_vodka" && l.tipo !== "visualizador_individual");
+            {(() => {
+              const fornecedorLinks = shareLinks.filter(l => l.ativo && l.tipo !== "visualizador" && l.tipo !== "visualizador_vodka");
+              const regularLinks = fornecedorLinks.filter(l => l.tipo !== "visualizador_individual");
+              const individualViewerLinks = fornecedorLinks.filter(l => l.tipo === "visualizador_individual");
               return (
                 <div>
-                  <Label className="font-bold">Exibir no Link</Label>
+                  {/* Link Fornecedor */}
+                  <Label className="font-bold">Link Fornecedor</Label>
                   <Select value={selectedLinkToken} onValueChange={setSelectedLinkToken}>
                     <SelectTrigger className="mt-1">
-                      <SelectValue />
+                      <SelectValue placeholder="Nenhum fornecedor" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="admin">Visualização Admin</SelectItem>
-                      {fornecedorLinks.length === 0 ? (
-                        <div className="px-2 py-2 text-xs text-muted-foreground">
-                          Nenhum link de fornecedor criado ainda. Crie um link no botão "Compartilhar".
-                        </div>
-                      ) : (
-                        fornecedorLinks.map(link => (
-                          <SelectItem key={link.id} value={link.token}>{link.nick || link.token.slice(0, 8)}</SelectItem>
-                        ))
-                      )}
+                      <SelectItem value="__none__">Nenhum</SelectItem>
+                      {regularLinks.map(link => (
+                        <SelectItem key={link.id} value={link.id}>{link.nick || link.token.slice(0, 8)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  {/* Link Operador */}
+                  <Label className="font-bold mt-3 block">Link Operador</Label>
+                  <Select value={selectedOperatorLinkId} onValueChange={setSelectedOperatorLinkId}>
+                    <SelectTrigger className="mt-1">
+                      <SelectValue placeholder="Nenhum operador" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Nenhum</SelectItem>
+                      {individualViewerLinks.map(link => (
+                        <SelectItem key={link.id} value={link.id}>{link.nick || link.token.slice(0, 8)}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -2683,7 +2750,7 @@ const DelayEsportivo = () => {
 
       {/* Transaction Dialog */}
       <Dialog open={!!transDialog} onOpenChange={open => !open && setTransDialog(null)}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="w-[90vw] sm:max-w-sm">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {transDialog?.type === "saque" ? <ArrowUpCircle className="h-5 w-5" /> : <ArrowDownCircle className="h-5 w-5" />}
@@ -2843,7 +2910,7 @@ const DelayEsportivo = () => {
 
       {/* Deposit/Withdraw Choice Dialog */}
       <Dialog open={!!showDepositChoice} onOpenChange={open => !open && setShowDepositChoice(null)}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="w-[90vw] sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>{showDepositChoice === "depositar" ? "Onde deseja depositar?" : "De onde deseja retirar?"}</DialogTitle>
             <DialogDescription>
@@ -2891,7 +2958,7 @@ const DelayEsportivo = () => {
 
       {/* Wallet Deposit/Withdraw Dialog */}
       <Dialog open={!!walletDialog} onOpenChange={open => !open && setWalletDialog(null)}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="w-[90vw] sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>{walletDialog === "depositar" ? "Depositar na Caixa" : "Retirar da Caixa"}</DialogTitle>
             <DialogDescription>
@@ -2929,7 +2996,7 @@ const DelayEsportivo = () => {
 
       {/* Bank Deposit/Withdraw Dialog */}
       <Dialog open={!!bankDialog} onOpenChange={open => !open && setBankDialog(null)}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="w-[90vw] sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>
               {bankDialog?.tipo === "depositar" ? "Depositar" : "Retirar"} - {bankDialog?.banco === "santander" ? "Santander" : "C6 Bank"}
@@ -2984,7 +3051,7 @@ const DelayEsportivo = () => {
 
       {/* Client History Dialog */}
       <Dialog open={!!historicoCliente} onOpenChange={open => !open && setHistoricoCliente(null)}>
-        <DialogContent className="max-w-md max-h-[80vh] overflow-hidden flex flex-col">
+        <DialogContent className="w-[95vw] sm:max-w-md max-h-[80vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <History className="h-5 w-5" /> Histórico — {historicoCliente?.nome}
@@ -3072,7 +3139,7 @@ const DelayEsportivo = () => {
 
       {/* Edit Transaction Dialog */}
       <Dialog open={!!editTransacao} onOpenChange={open => !open && setEditTransacao(null)}>
-        <DialogContent className="max-w-xs">
+        <DialogContent className="w-[85vw] sm:max-w-xs">
           <DialogHeader>
             <DialogTitle>Editar Transação</DialogTitle>
             <DialogDescription className="sr-only">Editar valor da transação</DialogDescription>
@@ -3128,9 +3195,9 @@ const DelayEsportivo = () => {
 
       {/* Share Links Dialog */}
       <Dialog open={shareLinkDialogOpen} onOpenChange={setShareLinkDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="w-[95vw] sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Links Compartilháveis</DialogTitle>
+            <DialogTitle>Links Fornecedores</DialogTitle>
             <DialogDescription>Crie links individuais para cada pessoa gerenciar seus clientes.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -3151,7 +3218,7 @@ const DelayEsportivo = () => {
             {isAdmin && (
               <div className="border border-dashed border-purple-500/40 rounded-lg p-3 space-y-2">
                 <p className="text-xs font-bold flex items-center gap-1.5">
-                  <Eye className="h-3.5 w-3.5 text-purple-400" /> Link Individual de Visualização
+                  <Eye className="h-3.5 w-3.5 text-purple-400" /> Link Operadores
                 </p>
                 <p className="text-[10px] text-muted-foreground">Quem acessar verá <strong>somente</strong> os clientes do nick escolhido, com a mesma visão do Admin.</p>
                 <div className="flex gap-2">
@@ -3190,30 +3257,19 @@ const DelayEsportivo = () => {
               </div>
             )}
 
-            {/* List of links */}
-            <div className="space-y-2 max-h-[300px] overflow-y-auto">
+            {/* List of links — separated by type */}
+            <div className="space-y-3 max-h-[320px] overflow-y-auto">
               {shareLinks.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-4">Nenhum link criado ainda.</p>
-              ) : (
-                shareLinks.map(link => (
+              ) : (() => {
+                const fornecedorList = shareLinks.filter(l => l.tipo !== "visualizador" && l.tipo !== "visualizador_vodka" && l.tipo !== "visualizador_individual");
+                const operadorList = shareLinks.filter(l => l.tipo === "visualizador_individual" || l.tipo === "visualizador_vodka");
+
+                const renderLink = (link: typeof shareLinks[0]) => (
                   <div key={link.id} className={`flex items-center justify-between p-3 rounded-lg border ${link.ativo ? "border-border" : "border-border/30 opacity-50"}`}>
                     <div className="min-w-0 flex-1">
-                      <p className="font-medium text-sm truncate flex items-center gap-1.5">
-                        {link.nick || "Sem nick"}
-                        {link.tipo === "visualizador" && (
-                          <Badge variant="outline" className="text-[9px] px-1.5 py-0">
-                            <Eye className="h-2.5 w-2.5 mr-0.5" /> Visualização
-                          </Badge>
-                        )}
-                        {(link.tipo === "visualizador_vodka" || link.tipo === "visualizador_individual") && (
-                          <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-purple-500/50 text-purple-400">
-                            <Eye className="h-2.5 w-2.5 mr-0.5" /> Individual
-                          </Badge>
-                        )}
-                      </p>
-                      <p className="text-[11px] text-muted-foreground">
-                        {link.ativo ? "Ativo" : "Revogado"}
-                      </p>
+                      <p className="font-medium text-sm truncate">{link.nick || "Sem nick"}</p>
+                      <p className="text-[11px] text-muted-foreground">{link.ativo ? "Ativo" : "Revogado"}</p>
                     </div>
                     {link.ativo && (
                       <div className="flex gap-1 shrink-0">
@@ -3226,8 +3282,25 @@ const DelayEsportivo = () => {
                       </div>
                     )}
                   </div>
-                ))
-              )}
+                );
+
+                return (
+                  <>
+                    {operadorList.length > 0 && (
+                      <div className="space-y-1.5">
+                        <p className="text-[10px] font-bold uppercase tracking-wide text-purple-400 px-1">Links Operadores</p>
+                        {operadorList.map(renderLink)}
+                      </div>
+                    )}
+                    {fornecedorList.length > 0 && (
+                      <div className="space-y-1.5">
+                        <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground px-1">Links Fornecedores</p>
+                        {fornecedorList.map(renderLink)}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
             {shareLinks.some(l => !l.ativo) && (
               <Button variant="outline" size="sm" className="w-full text-destructive border-destructive/30 hover:bg-destructive/10" onClick={handleClearRevokedLinks}>

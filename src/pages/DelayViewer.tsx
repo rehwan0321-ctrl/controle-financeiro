@@ -13,7 +13,7 @@ import { Users, Copy, Search, Eye, EyeOff, Filter, Lock, CalendarIcon } from "lu
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
-import rwLogo from "@/assets/rw-logo.png";
+const rwLogo = "/rw-logo.png";
 
 interface ClienteViewer {
   id: string;
@@ -158,7 +158,11 @@ const DelayViewer = () => {
       if (getClienteStatus(c) === "aguardando") return false;
       return true;
     });
-    const counts: Record<string, number> = { todos: baseList.length, operando: 0, concluido: 0, devolvido: 0, saque_pendente: 0 };
+    const aguardandoCount = clientes.filter((c) => {
+      if (linkTipo !== "visualizador_vodka" && c.nome.toLowerCase().includes("vodka")) return false;
+      return getClienteStatus(c) === "aguardando";
+    }).length;
+    const counts: Record<string, number> = { todos: baseList.length, operando: 0, concluido: 0, devolvido: 0, saque_pendente: 0, aguardando: aguardandoCount };
     baseList.forEach(c => { counts[getClienteStatus(c)]++; });
     return counts;
   }, [clientes, linkTipo]);
@@ -166,7 +170,7 @@ const DelayViewer = () => {
   const filtered = useMemo(() => {
     let list = clientes.filter((c) => {
       if (linkTipo !== "visualizador_vodka" && c.nome.toLowerCase().includes("vodka")) return false;
-      if (getClienteStatus(c) === "aguardando") return false;
+      if (getClienteStatus(c) === "aguardando" && filtroStatus !== "aguardando") return false;
       return true;
     });
 
@@ -283,14 +287,15 @@ const DelayViewer = () => {
 
   return (
     <div className="min-h-screen bg-background pb-8">
-      <div className="sticky top-0 z-30 bg-card/95 backdrop-blur-sm border-b px-4 py-3">
-        <div className="flex items-center justify-between max-w-4xl mx-auto">
+      <div className="fixed top-0 left-0 right-0 z-30 bg-card/95 backdrop-blur-sm border-b px-4 py-3 space-y-2">
+        <div className="flex items-center justify-between max-w-6xl mx-auto">
           <div className="flex items-center gap-3">
             <img src={rwLogo} alt="RW" className="h-8 w-8 rounded-full" />
             <div>
               <h1 className="text-sm font-bold">Delay Esportivo</h1>
               <p className="text-[10px] text-muted-foreground flex items-center gap-1">
                 <Eye className="h-3 w-3" /> Visualização · {sorted.length} clientes
+                {viewerNick && <span className="text-primary font-semibold">· {viewerNick}</span>}
               </p>
             </div>
           </div>
@@ -298,11 +303,9 @@ const DelayViewer = () => {
             <Lock className="h-3 w-3 mr-1" /> Somente leitura
           </Badge>
         </div>
-      </div>
 
-      <div className="max-w-4xl mx-auto px-4 pt-4 space-y-4">
-        <div className="flex flex-wrap gap-2">
-          <div className="relative flex-1 min-w-[150px]">
+        <div className="max-w-6xl mx-auto flex flex-wrap gap-2">
+          <div className="relative flex-1 min-w-0">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
               placeholder="Buscar cliente..."
@@ -313,7 +316,7 @@ const DelayViewer = () => {
           </div>
           {casas.length > 1 && (
             <Select value={filtroCasa} onValueChange={setFiltroCasa}>
-              <SelectTrigger className="w-[140px] h-8 text-xs">
+              <SelectTrigger className="w-full sm:w-[140px] h-8 text-xs">
                 <Filter className="h-3 w-3 mr-1" />
                 <SelectValue />
               </SelectTrigger>
@@ -335,16 +338,16 @@ const DelayViewer = () => {
           )}
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="max-w-6xl mx-auto flex items-center gap-2 flex-wrap">
           <Users className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
           {viewerNick && (
             <Badge variant="secondary" className="text-[10px]">{viewerNick}</Badge>
           )}
           <Filter className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
           {([
-            { key: "todos", label: "Todos" },
             { key: "operando", label: "Operando" },
-            { key: "concluido", label: "Concluído" },
+            { key: "aguardando", label: "Aguardando" },
+            { key: "concluido", label: "Concluídos" },
             { key: "devolvido", label: "Devolvido" },
           ] as const).map(f => (
             <Button
@@ -359,31 +362,18 @@ const DelayViewer = () => {
           ))}
         </div>
 
-        {/* Lucro cards - always visible */}
-        <div className="grid grid-cols-2 gap-2">
-          <Card>
-            <CardContent className="p-3 text-center">
-              <p className="text-[10px] text-muted-foreground">Lucro Total</p>
-              <p className={`text-sm font-bold font-mono mt-2 ${lucroTotal >= 0 ? "text-emerald-500" : "text-destructive"}`}>
-                {fmt(lucroTotal)}
-              </p>
-            </CardContent>
-          </Card>
+        {/* Stats row - fixed below filters */}
+        <div className="max-w-6xl mx-auto grid grid-cols-4 gap-3">
+          <div className="rounded-lg border bg-background/60 px-4 py-3 text-center">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Lucro Total</p>
+            <p className={`text-base font-bold font-mono ${lucroTotal >= 0 ? "text-emerald-500" : "text-destructive"}`}>{fmt(lucroTotal)}</p>
+          </div>
           <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
             <PopoverTrigger asChild>
-              <Card className="cursor-pointer hover:ring-1 hover:ring-primary/50 transition-all">
-                <CardContent className="p-3 text-center">
-                  <p className="text-[10px] text-muted-foreground flex items-center justify-center gap-1">
-                    Lucro Diário <CalendarIcon className="h-3 w-3" />
-                  </p>
-                  <p className="text-[9px] text-muted-foreground/70 mb-0.5">
-                    {format(lucroDate, "dd/MM/yyyy")}
-                  </p>
-                  <p className={`text-sm font-bold font-mono ${lucroDiario >= 0 ? "text-green-500" : "text-destructive"}`}>
-                    {fmt(lucroDiario)}
-                  </p>
-                </CardContent>
-              </Card>
+              <div className="rounded-lg border bg-background/60 px-4 py-3 text-center cursor-pointer hover:ring-1 hover:ring-primary/50 transition-all">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1 flex items-center justify-center gap-1">Lucro Diário <CalendarIcon className="h-3 w-3" /></p>
+                <p className={`text-base font-bold font-mono ${lucroDiario >= 0 ? "text-green-500" : "text-destructive"}`}>{fmt(lucroDiario)}</p>
+              </div>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0 z-50" align="center">
               <Calendar
@@ -395,40 +385,28 @@ const DelayViewer = () => {
                 initialFocus
               />
               <div className="p-2 border-t">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="w-full text-xs h-7"
-                  onClick={() => { setLucroDate(new Date()); setCalendarOpen(false); }}
-                >
+                <Button size="sm" variant="outline" className="w-full text-xs h-7" onClick={() => { setLucroDate(new Date()); setCalendarOpen(false); }}>
                   Voltar para Hoje
                 </Button>
               </div>
             </PopoverContent>
           </Popover>
+          <div className="rounded-lg border bg-background/60 px-4 py-3 text-center">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Total</p>
+            <p className="text-base font-bold">{sorted.length}</p>
+          </div>
+          <div className="rounded-lg border bg-background/60 px-4 py-3 text-center">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Depósitos</p>
+            <p className="text-base font-bold font-mono text-primary">{fmt(sorted.reduce((a, c) => a + c.depositos, 0))}</p>
+          </div>
         </div>
+      </div>
 
-        {/* Summary cards for non-concluido/devolvido */}
-        {filtroStatus !== "concluido" && filtroStatus !== "devolvido" && (
-        <div className="grid grid-cols-2 gap-2">
-          <Card>
-            <CardContent className="p-3 text-center">
-              <p className="text-[10px] text-muted-foreground">Total</p>
-              <p className="text-sm font-bold">{sorted.length}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-3 text-center">
-              <p className="text-[10px] text-muted-foreground">Depósitos</p>
-              <p className="text-sm font-bold font-mono text-primary">{fmt(sorted.reduce((a, c) => a + c.depositos, 0))}</p>
-            </CardContent>
-          </Card>
-        </div>
-        )}
+      <div className="max-w-6xl mx-auto px-4 pt-56 space-y-4">
 
-        <div className="space-y-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
           {sorted.length === 0 ? (
-            <Card>
+            <Card className="col-span-full">
               <CardContent className="py-8 text-center text-muted-foreground">
                 Nenhum cliente encontrado.
               </CardContent>

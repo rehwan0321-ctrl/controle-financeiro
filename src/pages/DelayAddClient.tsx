@@ -13,7 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import { CASAS_APOSTAS, getCasaLogo } from "@/lib/casas-apostas";
 import { UserPlus, Plus, Users, Copy, Search, Check, ChevronsUpDown, Filter } from "lucide-react";
 import { cn } from "@/lib/utils";
-import rwLogo from "@/assets/rw-logo.png";
+const rwLogo = "/rw-logo.png";
 
 interface ClienteExterno {
   id: string;
@@ -55,7 +55,7 @@ const DelayAddClient = () => {
   const [showForm, setShowForm] = useState(false);
   const [linkNick, setLinkNick] = useState<string | null>(null);
   const [casaOpen, setCasaOpen] = useState(false);
-  const [statusFilter, setStatusFilter] = useState("todos");
+  const [statusFilter, setStatusFilter] = useState("ativo");
 
   const getClienteStatus = (c: ClienteExterno) => {
     if (c.saques > 0 && c.saques === c.depositos && c.lucro === 0) return "devolvido";
@@ -242,7 +242,7 @@ const DelayAddClient = () => {
         {/* Header */}
         <Card>
           <CardHeader className="text-center space-y-2 pb-3">
-            <img src={rwLogo} alt="RW Investimentos" className="h-64 w-auto mx-auto object-contain drop-shadow-[0_2px_8px_rgba(0,0,0,0.3)]" />
+            <img src={rwLogo} alt="RW Investimentos" className="h-24 sm:h-48 w-auto mx-auto object-contain drop-shadow-[0_2px_8px_rgba(0,0,0,0.3)]" />
             <CardTitle className="text-xl">Delay Esportivo{linkNick ? ` - ${linkNick}` : " - Clientes"}</CardTitle>
             <p className="text-sm text-muted-foreground">Gerencie seus clientes abaixo</p>
           </CardHeader>
@@ -265,7 +265,6 @@ const DelayAddClient = () => {
           <div className="flex items-center gap-2 flex-wrap">
             <Filter className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
             {([
-              { key: "todos", label: "Todos" },
               { key: "ativo", label: "Ativo" },
               { key: "saque_pendente", label: "Saque Pendente" },
               { key: "aguardando", label: "Aguardando" },
@@ -384,7 +383,7 @@ const DelayAddClient = () => {
 
         {/* Form Dialog */}
         <Dialog open={showForm} onOpenChange={(open) => { if (!open) { resetForm(); setShowForm(false); } }}>
-          <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogContent className="w-[95vw] sm:max-w-lg max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Novo Cliente</DialogTitle>
             </DialogHeader>
@@ -433,7 +432,7 @@ const DelayAddClient = () => {
                 </Popover>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-2">
                   <Label>Login *</Label>
                   <Input value={login} onChange={e => setLogin(e.target.value)} placeholder="Login da conta" required />
@@ -444,7 +443,7 @@ const DelayAddClient = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-2">
                   <Label>Valor Depósito (R$) *</Label>
                   <Input

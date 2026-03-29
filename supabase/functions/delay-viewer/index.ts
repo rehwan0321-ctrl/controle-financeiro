@@ -52,7 +52,7 @@ Deno.serve(async (req) => {
 
     const { data: clientes, error: clientesError } = await supabase
       .from("delay_clientes")
-      .select("id, nome, casa, login, senha, fornecedor, tipo, banco_deposito, status, operacao, depositos, saques, custos, lucro, deposito_pendente, informacoes_adicionais, created_at, updated_at, created_by_token")
+      .select("id, nome, casa, login, senha, fornecedor, tipo, banco_deposito, status, operacao, depositos, saques, custos, lucro, deposito_pendente, informacoes_adicionais, created_at, updated_at, created_by_token, operator_link_id")
       .eq("user_id", linkData.user_id)
       .order("created_at", { ascending: false });
 
@@ -104,11 +104,24 @@ Deno.serve(async (req) => {
 
     const clientesComNick = (clientes || [])
       .filter((c: any) => {
-        if (isFornecedor) return c.created_by_token === linkData.id;
+        if (isFornecedor) {
+          // 1. Directly assigned to this fornecedor link
+          if (c.created_by_token === linkData.id) return true;
+          if (linkData.nick) {
+            // 2. Assigned to any link (operator or other) with the SAME nick
+            if (c.created_by_token && nickMap[c.created_by_token] === linkData.nick) return true;
+            // 3. Fallback: fornecedor text field contains the nick
+            if (c.fornecedor && c.fornecedor.toLowerCase().includes(linkData.nick.toLowerCase())) return true;
+          }
+          return false;
+        }
         if (isVodkaOnly) return c.nome.toLowerCase().includes("vodka");
         if (isIndividual) {
           if (!allowedTokens) return false;
-          return c.created_by_token && allowedTokens.has(c.created_by_token);
+          // Check created_by_token (old behavior) OR operator_link_id (new dedicated field)
+          if (c.created_by_token && allowedTokens.has(c.created_by_token)) return true;
+          if (c.operator_link_id && allowedTokens.has(c.operator_link_id)) return true;
+          return false;
         }
         return !c.nome.toLowerCase().includes("vodka");
       })
